@@ -1,0 +1,57 @@
+name: nas-wallboard-dev
+
+services:
+  volume-init:
+    image: nas-wallboard:test-local
+    pull_policy: never
+    build:
+      context: .
+      args:
+        VERSION: test-local
+    user: "0:0"
+    entrypoint: ["/app/wallboard"]
+    command: ["init-data", "--path", "/data", "--uid", "65532", "--gid", "65532"]
+    read_only: true
+    volumes:
+      - wallboard-dev-data:/data
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 16
+    mem_limit: 32m
+    cpus: "0.10"
+    restart: "no"
+
+  wallboard:
+    image: nas-wallboard:test-local
+    pull_policy: never
+    build:
+      context: .
+      args:
+        VERSION: test-local
+    user: "65532:65532"
+    restart: unless-stopped
+    read_only: true
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+    ports:
+      - "${WALLBOARD_PORT:-18082}:8080"
+    volumes:
+      - wallboard-dev-data:/data
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,nodev,size=16m"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: "0.50"
+    healthcheck:
+      test: ["CMD", "/app/wallboard", "healthcheck", "--url", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  wallboard-dev-data:

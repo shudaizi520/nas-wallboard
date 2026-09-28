@@ -1,0 +1,8 @@
+{
+  "hostname": "atlas-nas",
+  "version": "25.10.7",
+  "uptime_seconds": 93784.75,
+  "physmem": "34359738368",
+  "api_key": "must-never-escape",
+  "internal_build": {"private": true}
+}

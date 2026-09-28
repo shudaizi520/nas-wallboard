@@ -1,0 +1,20 @@
+[
+  {
+    "id": "plex",
+    "name": "plex-internal-name",
+    "state": "RUNNING",
+    "upgrade_available": true,
+    "config": {"password": "discard-me"}
+  },
+  {
+    "id": "photos",
+    "name": "photos",
+    "state": "A_NEW_FUTURE_STATE",
+    "upgrade_available": false
+  },
+  {
+    "id": "not-selected",
+    "name": "hidden",
+    "state": "RUNNING"
+  }
+]

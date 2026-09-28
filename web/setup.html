@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg?v=1">
+  <link rel="stylesheet" href="/admin.css?v=1">
+  <title>设置 NAS Wallboard</title>
+</head>
+<body>
+  <main class="admin-layout">
+    <aside class="setup-aside" aria-label="设置进度">
+      <a class="brand" href="/">
+        <img src="/icon.svg?v=1" alt="">
+        <span><strong>NAS Wallboard</strong><small>TrueNAS 初始设置</small></span>
+      </a>
+      <ol class="setup-progress">
+        <li data-progress-step="0" data-number="1">欢迎</li>
+        <li data-progress-step="1" data-number="2">TrueNAS</li>
+        <li data-progress-step="2" data-number="3">连接测试</li>
+        <li data-progress-step="3" data-number="4">管理员</li>
+        <li data-progress-step="4" data-number="5">发现</li>
+        <li data-progress-step="5" data-number="6">确认</li>
+      </ol>
+    </aside>
+
+    <section class="admin-card">
+      <form id="setup-form" novalidate>
+        <section class="step-panel" data-step="0">
+          <p class="eyebrow">第一步 · 兼容性</p>
+          <h1>几分钟完成设置</h1>
+          <p class="lead">之后所有功能都可以在网页里管理，不需要编辑 YAML，也不需要再找 Codex。当前版本专门支持 TrueNAS SCALE 25.10 及以上版本。</p>
+          <div class="info-card"><strong>开始前准备</strong><br>请在 TrueNAS 中创建一个专用的只读服务账户和 API Key。向导会逐项验证实际权限，不会把密钥显示在设置结果里。</div>
+          <label class="check-row" for="compatibility">
+            <input id="compatibility" type="checkbox">
+            <span>我使用的是 TrueNAS SCALE 25.10 或更高版本，并会使用专用账户。</span>
+          </label>
+          <small data-error="compatibility" class="field-error"></small>
+        </section>
+
+        <section class="step-panel" data-step="1" hidden>
+          <p class="eyebrow">第二步 · TrueNAS 访问</p>
+          <h1>连接你的 TrueNAS</h1>
+          <p class="lead">建议账户只授予读取系统、存储池、硬盘、网络、应用、告警和实时性能所需的权限。</p>
+          <div id="imported-connection" class="info-card" hidden><strong>检测到旧版配置</strong><br>连接和密钥已经安全导入，不需要重新输入。下一步会重新验证权限。</div>
+          <div id="fresh-connection" class="form-grid">
+            <div class="field field--wide">
+              <label for="url">TrueNAS 地址</label>
+              <input id="url" type="text" inputmode="url" autocomplete="url" placeholder="https://nas.local">
+              <small data-error="url"></small>
+            </div>
+            <div class="field">
+              <label for="username">专用账户名</label>
+              <input id="username" type="text" autocomplete="username" placeholder="nas_wallboard">
+              <small data-error="username"></small>
+            </div>
+            <div class="field">
+              <label for="api-key">API Key</label>
+              <input id="api-key" type="password" autocomplete="off" spellcheck="false">
+              <small data-error="apiKey"></small>
+            </div>
+            <label class="check-row field--wide" for="insecure-skip-verify">
+              <input id="insecure-skip-verify" type="checkbox">
+              <span>TrueNAS 使用本地自签名证书（跳过证书链验证）</span>
+            </label>
+            <div id="http-warning" class="notice notice--warning field--wide"><strong>当前页面使用 HTTP</strong><br>首次提交的 API Key 会在你的局域网内以未加密方式传输。仅在可信 LAN 使用，或先配置 HTTPS 反向代理。</div>
+          </div>
+        </section>
+
+        <section class="step-panel" data-step="2" hidden>
+          <p class="eyebrow">第三步 · 权限验证</p>
+          <h1>连接测试</h1>
+          <p class="lead">服务会真实调用运行时所需的每一种只读接口，避免安装完成后才发现缺少权限。</p>
+          <div class="probe-panel">
+            <div class="probe-orb" aria-hidden="true"></div>
+            <button id="probe" class="primary" type="button">测试 TrueNAS 连接</button>
+            <p id="detected-version" role="status"></p>
+            <div id="permission-list"></div>
+          </div>
+        </section>
+
+        <section class="step-panel" data-step="3" hidden>
+          <p class="eyebrow">第四步 · 本地管理</p>
+          <h1>创建管理员密码</h1>
+          <p class="lead">这个密码只保护 NAS Wallboard 的管理页面，不会修改 TrueNAS 账户。会使用 Argon2id 加密保存。</p>
+          <div class="form-grid">
+            <div class="field">
+              <label for="password">管理员密码</label>
+              <input id="password" type="password" autocomplete="new-password">
+              <small data-error="password"></small>
+            </div>
+            <div class="field">
+              <label for="password-confirmation">再次输入</label>
+              <input id="password-confirmation" type="password" autocomplete="new-password">
+              <small data-error="passwordConfirmation"></small>
+            </div>
+          </div>
+        </section>
+
+        <section class="step-panel" data-step="4" hidden>
+          <p class="eyebrow">第五步 · 自动发现</p>
+          <h1>这些资源已经就绪</h1>
+          <p class="lead">发现结果只用于生成合理的默认组件。你之后可以在管理页面随时调整显示内容和数据来源。</p>
+          <div id="discovery" class="discovery-grid"></div>
+        </section>
+
+        <section class="step-panel" data-step="5" hidden>
+          <p class="eyebrow">第六步 · 确认</p>
+          <h1>可以开始了</h1>
+          <p class="lead">保存时会再次测试连接，然后一次性写入管理员账户、TrueNAS 设置和密钥。失败不会留下半套配置。</p>
+          <dl class="review-list">
+            <div><dt>TrueNAS 连接</dt><dd id="review-address"></dd></div>
+            <div><dt>检测版本</dt><dd id="review-version"></dd></div>
+            <div><dt>发现资源</dt><dd id="review-resources"></dd></div>
+            <div><dt>配置存储</dt><dd>NAS Wallboard 持久化数据目录</dd></div>
+            <div><dt>管理员密码</dt><dd>已设置，不会显示或返回</dd></div>
+          </dl>
+        </section>
+
+        <footer class="form-actions">
+          <p id="form-status" role="alert" aria-live="polite"></p>
+          <button id="back" class="text-button" type="button" hidden>返回</button>
+          <button id="next" class="primary" type="button">继续</button>
+        </footer>
+      </form>
+    </section>
+  </main>
+  <script type="module" src="/setup.js?v=1"></script>
+</body>
+</html>

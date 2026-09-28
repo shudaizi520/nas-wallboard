@@ -1,0 +1,21 @@
+[
+  {
+    "id": 1,
+    "name": "tank",
+    "status": "ONLINE",
+    "healthy": true,
+    "size": "4000",
+    "allocated": 1000,
+    "scan": {"state": "FINISHED", "percentage": 100},
+    "topology": {"data": [{"disk": "private-layout"}]}
+  },
+  {
+    "id": "archive-id",
+    "name": "archive",
+    "status": "FUTURE_STATE",
+    "healthy": false,
+    "size": 0,
+    "allocated": 0,
+    "scan": null
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "name": "nas-wallboard-web-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test web/*.test.mjs",
+    "test:e2e": "playwright test tests/e2e/dashboard.spec.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}
+

@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.425
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Verify release source
+        run: |
+          go test -race ./...
+          go vet ./...
+          npm test
+          npm run test:e2e
+          dotnet test windows/NASWallboard.Desktop.sln -c Release
+      - name: Build Windows client once
+        run: >-
+          dotnet publish windows/NASWallboard.Desktop/NASWallboard.Desktop.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o web/downloads
+      - name: Reject non-semantic or unsafe release tags before publishing
+        run: >-
+          go run ./tools/release
+          --repository "${GITHUB_REPOSITORY}"
+          --version "${GITHUB_REF_NAME}"
+          --digest "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          --output /tmp/nas-wallboard-release-validation.yaml
+      - name: Resolve image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish immutable linux/amd64 image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ github.ref_name }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            REPOSITORY=${{ github.repository }}
+      - name: Render TrueNAS installer
+        run: |
+          mkdir -p dist
+          go run ./tools/release \
+            --repository "${GITHUB_REPOSITORY}" \
+            --version "${GITHUB_REF_NAME}" \
+            --digest "${{ steps.build.outputs.digest }}" \
+            --output dist/nas-wallboard-truenas.yaml
+      - name: Build portable Windows ZIP
+        run: |
+          mkdir -p dist/windows
+          cp web/downloads/NASWallboard.Desktop.exe dist/windows/
+          cp docs/windows-desktop-widget.md dist/windows/使用说明.md
+          (cd dist/windows && zip -9 ../nas-wallboard-desktop.zip NASWallboard.Desktop.exe 使用说明.md)
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          image: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: dist/nas-wallboard.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Verify published image and clean setup state
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}'
+          volume="wallboard-release-${GITHUB_RUN_ID}"
+          container="wallboard-release-${GITHUB_RUN_ID}"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; docker volume rm "$volume" >/dev/null 2>&1 || true' EXIT
+          docker pull "$image"
+          docker volume create "$volume" >/dev/null
+          docker run --rm --user 0:0 -v "$volume:/data" "$image" init-data --path /data --uid 65532 --gid 65532
+          docker run -d --name "$container" --user 65532:65532 --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m -v "$volume:/data" -p 127.0.0.1:18082:8080 "$image" serve
+          for attempt in {1..30}; do curl --fail --silent http://127.0.0.1:18082/healthz && break; sleep 1; done
+          curl --fail --silent http://127.0.0.1:18082/api/setup/status | grep '"required":true'
+      - name: Checksums
+        run: (cd dist && sha256sum nas-wallboard-truenas.yaml nas-wallboard-desktop.zip nas-wallboard.spdx.json > SHA256SUMS)
+      - name: Attest release files
+        uses: actions/attest@v4.2.1
+        with:
+          subject-path: |
+            dist/nas-wallboard-truenas.yaml
+            dist/nas-wallboard-desktop.zip
+            dist/nas-wallboard.spdx.json
+            dist/SHA256SUMS
+      - name: Publish GitHub Release after every gate passes
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/nas-wallboard-truenas.yaml
+            dist/nas-wallboard-desktop.zip
+            dist/nas-wallboard.spdx.json
+            dist/SHA256SUMS

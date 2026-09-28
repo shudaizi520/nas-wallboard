@@ -1,0 +1,5 @@
+[
+  {"name":"cpu","identifiers":null},
+  {"name":"memory","identifiers":null},
+  {"name":"interface","identifiers":["eno1","br0"]}
+]

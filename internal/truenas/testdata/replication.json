@@ -1,0 +1,7 @@
+[
+  {"id": 1, "enabled": false, "state": {"state": "ERROR", "error": "private destination"}},
+  {"id": 2, "enabled": true, "state": {"state": "WAITING", "datetime": null, "last_snapshot": null}},
+  {"id": 3, "enabled": true, "state": {"state": "FINISHED", "error": "", "datetime": {"$date": 1770000000000}, "last_snapshot": "private/dataset@snapshot"}},
+  {"id": 4, "enabled": true, "state": {"state": "ERROR", "error": "credential for remote-private-host", "datetime": {"$date": 1770000000000}, "last_snapshot": "private/dataset@snapshot"}},
+  {"id": 5, "enabled": true, "state": {"state": "RUNNING", "error": "", "datetime": {"$date": 1770000000000}, "last_snapshot": "private/dataset@snapshot"}}
+]

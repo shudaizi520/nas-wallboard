@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg?v=1">
+  <link rel="stylesheet" href="/manage.css?v=1">
+  <title>NAS Wallboard 管理</title>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>管理中心</h1>
+      <nav>
+        <a class="install" href="/download/nas-wallboard-desktop.zip">安装桌面小组件</a>
+        <a href="/" target="_blank" rel="noopener">网页预览</a>
+        <button id="logout" type="button">退出</button>
+      </nav>
+    </header>
+
+    <div class="page-tabs" role="tablist" aria-label="管理页面">
+      <button type="button" role="tab" aria-selected="true" data-page-target="overview-page">概览</button>
+      <button type="button" role="tab" aria-selected="false" data-page-target="desktop-page">桌面内容</button>
+      <button type="button" role="tab" aria-selected="false" data-page-target="integrations-page">集成中心</button>
+      <button type="button" role="tab" aria-selected="false" data-page-target="settings-page">设置与恢复</button>
+    </div>
+
+    <section id="overview-page" class="manage-page">
+      <div class="section-heading"><div><p class="eyebrow">运行状态</p><h2>一眼确认是否正常</h2><p id="overview-details">正在读取 Wallboard 和 TrueNAS 状态…</p></div></div>
+      <div id="overview-cards" class="health-grid" aria-live="polite"></div>
+      <section class="settings-card update-card">
+        <div><h2>软件更新</h2><p id="update-result">每天最多向项目的 GitHub Release 检查一次；断网不影响本地使用。</p></div>
+        <button id="check-update" class="secondary-button" type="button">检查更新</button>
+      </section>
+    </section>
+
+    <section id="desktop-page" class="manage-page" hidden>
+      <div class="section-heading layout-heading">
+        <div><p class="eyebrow">桌面小组件</p><h2>布局和内容</h2><p>添加需要的信息、调整顺序和数据来源；右侧就是 Windows 桌面的实际效果。</p></div>
+      </div>
+      <section class="width-card">
+        <label for="width">面板宽度</label>
+        <input id="width" type="range" min="300" max="720">
+        <output id="width-value" for="width"></output>
+      </section>
+      <div class="layout-workspace">
+        <div class="layout-editor-column">
+          <section class="layout-card">
+            <div class="card-heading"><div><h2>正在显示</h2><p>拖动 ⋮⋮，或按 Alt + ↑ / ↓ 排序。</p></div></div>
+            <div id="layout-items" class="layout-items"></div>
+          </section>
+          <section class="layout-card">
+            <div class="card-heading"><div><h2>添加内容</h2><p>只显示当前已经连接的数据来源所支持的组件。</p></div></div>
+            <div id="widget-library" class="widget-library"></div>
+          </section>
+        </div>
+        <aside class="preview-card">
+          <div class="card-heading"><div><h2>桌面预览</h2><p>保存后自动刷新，与桌面客户端使用同一个页面。</p></div><a href="/" target="_blank" rel="noopener">全屏查看</a></div>
+          <div class="preview-stage"><iframe id="layout-preview" title="桌面小组件预览"></iframe></div>
+        </aside>
+      </div>
+      <footer>
+        <span id="status" role="status"></span>
+        <button id="reset-layout" class="secondary" type="button">恢复默认参数</button>
+        <button id="save" type="button">保存布局</button>
+      </footer>
+    </section>
+
+    <section id="integrations-page" class="manage-page" hidden>
+      <div class="section-heading"><div><p class="eyebrow">内置连接</p><h2>集成中心</h2><p>添加和测试数据来源；密钥只保存在 NAS Wallboard 数据目录中。</p></div></div>
+      <div id="integration-cards" class="integration-grid" aria-live="polite"></div>
+    </section>
+
+    <section id="settings-page" class="manage-page" hidden>
+      <div class="section-heading"><div><p class="eyebrow">安全与恢复</p><h2>备份、密码与恢复出厂</h2><p>诊断包不含密钥；完整备份必须重新验证管理员密码，并使用单独密码加密。</p></div></div>
+      <div class="settings-grid">
+        <section class="settings-card">
+          <h2>诊断包</h2><p>下载脱敏后的版本、模块状态和配置摘要，适合提交问题时使用。</p>
+          <button id="download-support" class="secondary-button" type="button">下载脱敏诊断包</button>
+        </section>
+        <form id="backup-form" class="settings-card">
+          <h2>完整加密备份</h2><p>包含配置和密钥，只能用你设置的备份密码解密。</p>
+          <label>管理员密码<input name="administrator" type="password" autocomplete="current-password"></label>
+          <label>备份密码<input name="backup" type="password" autocomplete="new-password"></label>
+          <button type="submit">下载加密备份</button>
+        </form>
+        <form id="password-form" class="settings-card">
+          <h2>修改管理密码</h2><p>修改成功后，所有已登录设备都会退出。</p>
+          <label>当前密码<input name="current" type="password" autocomplete="current-password"></label>
+          <label>新密码<input name="replacement" type="password" autocomplete="new-password"></label>
+          <label>再次输入新密码<input name="confirmation" type="password" autocomplete="new-password"></label>
+          <button type="submit">修改密码</button>
+        </form>
+        <form id="reset-form" class="settings-card danger-card">
+          <h2>恢复出厂</h2><p>仅删除 Wallboard 在数据目录中的配置，不会删除 TrueNAS 上的任何数据。请先下载备份。</p>
+          <label>管理员密码<input name="administrator" type="password" autocomplete="current-password"></label>
+          <label>输入“删除 NAS WALLBOARD”确认<input name="confirmation" type="text" autocomplete="off"></label>
+          <button type="submit">删除 Wallboard 配置</button>
+        </form>
+      </div>
+      <p id="settings-message" class="settings-message" role="status"></p>
+    </section>
+  </main>
+  <dialog id="integration-dialog"><form method="dialog"></form></dialog>
+  <script type="module" src="/manage.js?v=5"></script>
+</body>
+</html>

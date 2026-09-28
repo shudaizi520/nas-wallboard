@@ -1,0 +1,32 @@
+[
+  {
+    "name":"cpu",
+    "identifier":"cpu",
+    "legend":["time","cpu","cpu0"],
+    "data":[[199,12.5,10],[200,14,11]]
+  },
+  {
+    "name":"cputemp",
+    "identifier":"cputemp",
+    "legend":["time","cpu0","cpu1","cpu"],
+    "data":[[199,42,44,52],[200,45,47,56]]
+  },
+  {
+    "name":"memory",
+    "identifier":"memory",
+    "legend":["time","available"],
+    "data":[[199,8589934592],[200,8000000000]]
+  },
+  {
+    "name":"interface",
+    "identifier":"eno1",
+    "legend":["time","received","sent"],
+    "data":[[199,80,160],[200,800,1600]]
+  },
+  {
+    "name":"interface",
+    "identifier":"br0",
+    "legend":["time","received","sent"],
+    "data":[[199,4000,2000],[200,8000,4000]]
+  }
+]

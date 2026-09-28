@@ -1,0 +1,35 @@
+name: 故障报告
+description: 报告可复现的 NAS Wallboard 问题
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我使用 TrueNAS SCALE 25.10 或更高版本
+          required: true
+        - label: 我已删除 API Key、密码、Token、Cookie、硬盘序列号和公网地址
+          required: true
+  - type: input
+    attributes:
+      label: Wallboard 版本
+      placeholder: v1.0.0-beta.1
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: TrueNAS 版本
+      placeholder: 25.10.x
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 现象与复现步骤
+      description: 说明期望结果、实际结果和最短复现步骤。
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 脱敏诊断
+      description: 可附加“设置与恢复”中下载的脱敏诊断 ZIP；不要上传完整加密备份。

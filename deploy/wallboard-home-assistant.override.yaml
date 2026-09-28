@@ -1,0 +1,7 @@
+services:
+  wallboard:
+    volumes:
+      - type: bind
+        source: ./secrets/home_assistant_token
+        target: /run/secrets/home_assistant_token
+        read_only: true

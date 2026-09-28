@@ -1,0 +1,24 @@
+[
+  {
+    "uuid": "alert-1",
+    "level": "CRITICAL",
+    "klass": "PoolStatus",
+    "formatted": "Pool tank is degraded",
+    "datetime": "2026-09-27T06:30:00Z",
+    "args": {"secret_detail": "discard-me"}
+  },
+  {
+    "uuid": "alert-2",
+    "level": "WARNING",
+    "klass": "DiskTemperature",
+    "formatted": "Disk temperature is high",
+    "datetime": {"$date": 1790488800000}
+  },
+  {
+    "uuid": "alert-3",
+    "level": "FUTURE_LEVEL",
+    "klass": "FutureAlert",
+    "formatted": "Future alert",
+    "datetime": null
+  }
+]

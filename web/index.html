@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg?v=1">
+  <link rel="stylesheet" href="/styles.css?v=21">
+  <title>NAS Wallboard</title>
+</head>
+<body>
+  <main class="wallpaper">
+    <section class="glass-panel" aria-label="NAS 状态">
+      <a class="setup-required" data-bind="setup-required" href="/setup" hidden>
+        <strong>完成初始设置</strong>
+        <span>连接 TrueNAS 后开始显示状态</span>
+      </a>
+      <header class="health-strip">
+        <span class="nas-mark">
+          <i class="connection-dot" data-bind="connection" data-tone="bad" aria-hidden="true"></i>
+          <b>NAS</b>
+          <span class="nas-uptime" data-bind="uptime" hidden></span>
+        </span>
+        <div class="health-metrics" data-list="metrics"></div>
+      </header>
+
+      <div class="activity-list" data-list="activities" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-cpu" viewBox="0 0 24 24">
+      <rect x="7" y="7" width="10" height="10" rx="2"></rect>
+      <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3M10 10h4v4h-4z"></path>
+    </symbol>
+    <symbol id="icon-disk" viewBox="0 0 24 24">
+      <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z"></path>
+      <path d="M7 15h10M8 17h.01M16 17h.01"></path>
+    </symbol>
+    <symbol id="icon-network" viewBox="0 0 24 24">
+      <path d="M7 4v13M3 13l4 4 4-4M17 20V7M13 11l4-4 4 4"></path>
+    </symbol>
+    <symbol id="icon-weather-sunny" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="4.1" fill="currentColor" stroke="none"></circle>
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
+    </symbol>
+    <symbol id="icon-weather-cloudy" viewBox="0 0 24 24">
+      <path d="M6.5 18h10a4 4 0 0 0 .4-8A5.6 5.6 0 0 0 6.4 8.7 4.7 4.7 0 0 0 6.5 18z"></path>
+    </symbol>
+    <symbol id="icon-weather-rain" viewBox="0 0 24 24">
+      <path d="M6.5 17.5h10a4 4 0 0 0 .4-8A5.6 5.6 0 0 0 6.4 8.2a4.7 4.7 0 0 0 .1 9.3z"></path>
+      <path d="m9 20-1 2M14 20l-1 2M18 20l-1 2"></path>
+    </symbol>
+    <symbol id="icon-weather-storm" viewBox="0 0 24 24">
+      <path d="M6.5 16.5h10a4 4 0 0 0 .4-8A5.6 5.6 0 0 0 6.4 7.2a4.7 4.7 0 0 0 .1 9.3z"></path>
+      <path d="m13 17-3 4h3l-1 2 4-5h-3z"></path>
+    </symbol>
+    <symbol id="icon-weather-snow" viewBox="0 0 24 24">
+      <path d="M6.5 15.5h10a4 4 0 0 0 .4-8A5.6 5.6 0 0 0 6.4 6.2a4.7 4.7 0 0 0 .1 9.3z"></path>
+      <path d="M9 18v4M7.3 19l3.4 2M7.3 21l3.4-2M16 18v4M14.3 19l3.4 2M14.3 21l3.4-2"></path>
+    </symbol>
+    <symbol id="icon-weather-fog" viewBox="0 0 24 24">
+      <path d="M6.5 14h10a4 4 0 0 0 .4-8A5.6 5.6 0 0 0 6.4 4.7 4.7 4.7 0 0 0 6.5 14z"></path>
+      <path d="M4 18h16M7 22h10"></path>
+    </symbol>
+    <symbol id="icon-fan" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="2"></circle>
+      <path d="M12 10c-1.8-3.6-.3-7 2.4-7 2.3 0 3.3 2.4 2.2 4.3C15.5 9.2 13.7 10 12 10zM14 12c3.6-1.8 7-.3 7 2.4 0 2.3-2.4 3.3-4.3 2.2-1.9-1.1-2.7-2.9-2.7-4.6zM12 14c1.8 3.6.3 7-2.4 7-2.3 0-3.3-2.4-2.2-4.3 1.1-1.9 2.9-2.7 4.6-2.7zM10 12c-3.6 1.8-7 .3-7-2.4 0-2.3 2.4-3.3 4.3-2.2C9.2 8.5 10 10.3 10 12z"></path>
+    </symbol>
+    <symbol id="icon-alert" viewBox="0 0 24 24">
+      <path d="m12 3 9 16H3z"></path>
+      <path d="M12 9v4M12 17h.01"></path>
+    </symbol>
+    <symbol id="icon-app" viewBox="0 0 24 24">
+      <rect x="4" y="4" width="6" height="6" rx="1"></rect>
+      <rect x="14" y="4" width="6" height="6" rx="1"></rect>
+      <rect x="4" y="14" width="6" height="6" rx="1"></rect>
+      <rect x="14" y="14" width="6" height="6" rx="1"></rect>
+    </symbol>
+    <symbol id="icon-updates" viewBox="0 0 24 24">
+      <path d="M20 7v5h-5M4 17v-5h5"></path>
+      <path d="M6.1 8A7 7 0 0 1 18 6l2 1M17.9 16A7 7 0 0 1 6 18l-2-1"></path>
+    </symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24">
+      <path d="M12 3v12M7 10l5 5 5-5"></path>
+      <path d="M5 20h14"></path>
+    </symbol>
+    <symbol id="icon-play" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"></circle>
+      <path d="m10 8 6 4-6 4z"></path>
+    </symbol>
+    <symbol id="icon-uptime" viewBox="0 0 24 24">
+      <path d="M3 12h4l2-5 4 10 2-5h6"></path>
+    </symbol>
+  </svg>
+
+  <script type="module" src="/app.js?v=15"></script>
+  <script type="module" src="/desktop.js?v=3"></script>
+</body>
+</html>

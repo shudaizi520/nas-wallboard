@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.425
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: npm test
+      - run: npm run test:e2e
+      - run: dotnet test windows/NASWallboard.Desktop.sln -c Release
+      - name: Build the exact desktop client embedded by the image
+        run: >-
+          dotnet publish windows/NASWallboard.Desktop/NASWallboard.Desktop.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o web/downloads
+      - name: Verify the production container builds
+        run: >-
+          docker build
+          --build-arg VERSION=ci-${GITHUB_SHA}
+          --build-arg REPOSITORY=${GITHUB_REPOSITORY}
+          --tag nas-wallboard:ci .

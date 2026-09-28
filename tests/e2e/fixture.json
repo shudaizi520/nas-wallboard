@@ -1,0 +1,16 @@
+{
+  "width": 300,
+  "connection_tone": "good",
+  "uptime": "5天 6小时",
+  "metrics": [
+    {"id": "cpu", "icon": "cpu", "value": "18.4%", "tone": "neutral"},
+    {"id": "cpu_temperature", "icon": "cpu", "value": "56°", "tone": "neutral"},
+    {"id": "disk_temperature", "icon": "disk", "value": "40°", "tone": "neutral"},
+    {"id": "network", "icon": "network", "value": "↓ 1 MB/s ↑ 1 MB/s", "tone": "neutral"}
+  ],
+  "activities": [
+    {"id": "weather", "icon": "weather-sunny", "tone": "active", "title": "", "value": "29° · 晴", "detail": "深圳 · 两小时无雨"},
+    {"id": "plex", "icon": "play", "tone": "active", "title": "Plex", "value": "播放", "detail": "沙丘 · 客厅电视"},
+    {"id": "alert:a1", "icon": "alert", "tone": "warn", "title": "SMART", "value": "", "detail": "机械硬盘温度偏高"}
+  ]
+}

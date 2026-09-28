@@ -1,0 +1,104 @@
+server:
+  listen: ":8080"
+  read_timeout: 11s
+  write_timeout: 12s
+
+truenas:
+  url: wss://nas.example.invalid/api/current
+  username: nas_wallboard
+  insecure_skip_verify: true
+  call_timeout: 9s
+
+dashboard:
+  title: 家庭 NAS
+  language: zh-CN
+  timezone: Asia/Shanghai
+  theme: midnight
+  background_strength: 0.7
+  width: 460
+  metrics:
+    - type: cpu
+    - type: cpu_temperature
+    - type: disk_temperature
+      match:
+        model: ST14000NM001G
+        size_bytes: 14000519643136
+    - type: network
+  activities:
+    - type: weather
+    - type: plex
+    - type: jellyfin
+    - type: qbittorrent
+    - type: uptime_kuma
+    - type: home_assistant_fan
+    - type: truenas_alerts
+      limit: 3
+
+refresh:
+  realtime: 5s
+  apps: 31s
+  alerts: 32s
+  system: 61s
+  pools: 62s
+  disks: 63s
+  weather: 16m
+  home_assistant: 33s
+  qbittorrent: 17s
+  plex: 18s
+  jellyfin: 19s
+  uptime_kuma: 34s
+  scrutiny: 31m
+
+apps:
+  - id: plex
+    name: Plex
+    sort: 10
+    link: http://plex.example.invalid/
+
+weather:
+  enabled: true
+  name: 平湖
+  latitude: 22.69
+  longitude: 114.13
+  units: metric
+  api_host_file: "{{WEATHER_HOST}}"
+  secret_file: "{{WEATHER_KEY}}"
+  call_timeout: 7s
+
+scrutiny:
+  enabled: true
+  url: http://scrutiny:8080
+  call_timeout: 4s
+
+home_assistant:
+  enabled: true
+  url: http://home-assistant:8123
+  fan_entity_id: fan.living_room
+  fan_name: 客厅风扇
+  remind_after: 90m
+  call_timeout: 4s
+
+qbittorrent:
+  enabled: true
+  url: http://qbittorrent:8080
+  username: wallboard
+  secret_file: "{{QBIT_PASSWORD}}"
+  call_timeout: 4s
+
+plex:
+  enabled: true
+  url: http://plex:32400
+  secret_file: "{{PLEX_TOKEN}}"
+  call_timeout: 4s
+
+jellyfin:
+  enabled: true
+  url: http://jellyfin:8096
+  secret_file: "{{JELLYFIN_KEY}}"
+  call_timeout: 4s
+
+uptime_kuma:
+  enabled: true
+  url: http://uptime-kuma:3001
+  secret_file: "{{UPTIME_KEY}}"
+  call_timeout: 4s

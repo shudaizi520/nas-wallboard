@@ -1,0 +1,11 @@
+services:
+  wallboard:
+    volumes:
+      - type: bind
+        source: ./secrets/qweather_api_host
+        target: /run/secrets/qweather_api_host
+        read_only: true
+      - type: bind
+        source: ./secrets/qweather_api_key
+        target: /run/secrets/qweather_api_key
+        read_only: true
