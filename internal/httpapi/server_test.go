@@ -270,6 +270,26 @@ func TestEveryRouteHasSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestDesktopPreviewAllowsOnlySameOriginFraming(t *testing.T) {
+	handler := apiTestHandler(t, apiTestStore(), apiTestAssets(), "version")
+
+	preview := request(t, handler, http.MethodGet, "/?desktop=1&preview=1")
+	if got := preview.Header().Get("X-Frame-Options"); got != "SAMEORIGIN" {
+		t.Fatalf("preview X-Frame-Options = %q", got)
+	}
+	if got := preview.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'self'") {
+		t.Fatalf("preview Content-Security-Policy = %q", got)
+	}
+
+	regular := request(t, handler, http.MethodGet, "/")
+	if got := regular.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("regular X-Frame-Options = %q", got)
+	}
+	if got := regular.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Fatalf("regular Content-Security-Policy = %q", got)
+	}
+}
+
 func TestHealthAndReadinessAreIndependent(t *testing.T) {
 	store := apiTestStore()
 	handler := apiTestHandler(t, store, apiTestAssets(), "version")
