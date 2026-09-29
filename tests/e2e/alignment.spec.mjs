@@ -108,7 +108,7 @@ test('current weather detail uses one line when short and at most two when long'
           <span class="activity-icon"></span>
           <div class="activity-copy">
             <div class="activity-line"><strong></strong><span data-field="value">33° 多云</span></div>
-            <p data-field="detail">两小时无雨</p>
+            <p data-field="detail">未来2小时无明显降雨</p>
           </div>
           <i class="activity-signal"></i>
         </article>

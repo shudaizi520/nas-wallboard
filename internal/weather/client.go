@@ -217,7 +217,7 @@ func summarizeRain(points []minutelyPrecipitation) string {
 		if hasRainSignal(points) {
 			return "局部可能有雨"
 		}
-		return "两小时无明显降雨"
+		return "未来2小时无明显降雨"
 	}
 	minutes := start * 5
 	switch {

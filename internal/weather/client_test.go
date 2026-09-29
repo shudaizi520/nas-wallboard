@@ -188,7 +188,7 @@ func TestWeatherRefreshUsesEachSourceUpdateCadence(t *testing.T) {
 		if refreshErr != nil {
 			t.Fatalf("Refresh() at tick %d error = %v", tick, refreshErr)
 		}
-		if !got.Enabled || got.Temperature != 29.4 || got.RainSummary != "两小时无明显降雨" || len(got.Forecasts) != 2 {
+		if !got.Enabled || got.Temperature != 29.4 || got.RainSummary != "未来2小时无明显降雨" || len(got.Forecasts) != 2 {
 			t.Fatalf("Refresh() at tick %d = %#v", tick, got)
 		}
 		now = now.Add(5 * time.Minute)

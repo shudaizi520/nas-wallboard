@@ -131,7 +131,7 @@ func TestBuilderShowsNetworkDiskHealthAndWeather(t *testing.T) {
 	if !equalMetrics(view.Metrics, wantMetrics) {
 		t.Fatalf("metrics = %#v, want %#v", view.Metrics, wantMetrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "两小时无雨"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "未来2小时无明显降雨"}
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
 	}
@@ -229,7 +229,7 @@ func TestWeatherActivitiesAppendTwoUnlabelledForecastRows(t *testing.T) {
 		},
 	}})
 	want := []Activity{
-		{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 少云", Detail: "两小时无雨"},
+		{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 少云", Detail: "未来2小时无明显降雨"},
 		{ID: "weather:forecast:0", Icon: "weather-cloudy", Tone: "neutral", Value: "多云", Detail: "26°–33° · 雨35%"},
 		{ID: "weather:forecast:1", Icon: "weather-rain", Tone: "neutral", Value: "阵雨", Detail: "25°–31° · 雨80%"},
 	}

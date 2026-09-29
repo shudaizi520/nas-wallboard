@@ -10,7 +10,7 @@
     {"id": "network", "icon": "network", "value": "↓ 1 MB/s ↑ 1 MB/s", "tone": "neutral"}
   ],
   "activities": [
-    {"id": "weather", "icon": "weather-sunny", "tone": "active", "title": "", "value": "29° · 晴", "detail": "两小时无雨"},
+    {"id": "weather", "icon": "weather-sunny", "tone": "active", "title": "", "value": "29° · 晴", "detail": "未来2小时无明显降雨"},
     {"id": "weather:forecast:0", "icon": "weather-cloudy", "tone": "neutral", "title": "", "value": "多云", "detail": "26°–33° · 雨35%"},
     {"id": "weather:forecast:1", "icon": "weather-rain", "tone": "neutral", "title": "", "value": "阵雨", "detail": "25°–31° · 雨80%"},
     {"id": "fan", "icon": "fan", "tone": "active", "title": "风扇", "value": "66% · 直吹风", "detail": ""},

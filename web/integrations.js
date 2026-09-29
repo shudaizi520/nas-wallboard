@@ -31,7 +31,6 @@ export function integrationRows(state = {}) {
     return {
       id: definition.id,
       name: definition.metadata.name,
-      description: definition.metadata.description || '',
       configured: integrationEndpoint(definition, instance),
       error: instance?.enabled && health?.healthy === false ? (health.message || '连接异常') : '',
       enabled: !instance ? '未启用' : instance.enabled ? '已启用' : '已停用',

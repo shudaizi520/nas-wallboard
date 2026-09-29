@@ -676,8 +676,8 @@ func weatherIcon(code string) string {
 func compactRainSummary(value string) string {
 	summary := strings.TrimSpace(value)
 	switch summary {
-	case "未来两小时无降水", "未来2小时无降水":
-		return "两小时无雨"
+	case "未来两小时无降水", "未来2小时无降水", "两小时无明显降雨":
+		return "未来2小时无明显降雨"
 	default:
 		return summary
 	}

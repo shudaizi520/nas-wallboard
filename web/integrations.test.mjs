@@ -46,12 +46,12 @@ test('integration rows expose status and valid actions without secret values', (
   });
 
   assert.equal(rows[0].id, 'plex');
-  assert.equal(rows[0].description, '媒体播放状态');
+  assert.equal('description' in rows[0], false);
   assert.equal(rows[0].configured, '未配置');
   assert.equal(rows[0].enabled, '未启用');
   assert.deepEqual(rows[0].actions, ['configure']);
   assert.equal(rows[1].id, 'truenas');
-  assert.equal(rows[1].description, '系统数据来源');
+  assert.equal('description' in rows[1], false);
   assert.equal(rows[1].configured, 'wss://nas.local/api/current');
   assert.equal(rows[1].enabled, '已启用');
   assert.equal(rows[1].error, '');

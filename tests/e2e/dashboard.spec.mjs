@@ -277,7 +277,7 @@ for (const viewport of [
     }));
     expect.soft(networkColors.up).toBe(networkColors.down);
     await expect(page.getByText('天气', {exact: true})).toHaveCount(0);
-    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('两小时无雨');
+    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('未来2小时无明显降雨');
     const weather = page.locator('[data-key="weather"]');
     await expect(weather).toHaveAttribute('data-icon', 'weather-sunny');
     await expect(weather.locator('[data-field="icon"]')).toHaveAttribute('href', '#icon-weather-sunny');
@@ -455,7 +455,7 @@ for (const viewport of [
     });
     await expect(page.locator('[data-bind="connection"]')).toHaveAttribute('data-tone', 'bad');
     await expect(page.locator('[data-key="cpu"] [data-field="value"]')).toHaveText('18.4% · 56°');
-    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('两小时无雨');
+    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('未来2小时无明显降雨');
     expect(consoleErrors).toEqual([]);
 
     await page.evaluate(async (data) => {
@@ -590,6 +590,7 @@ test('management layout stays bounded and aligned on wide screens', async ({page
   }
 
   await page.getByRole('tab', {name: '集成'}).click();
+  await expect(page.locator('[data-integration] .section-label p')).toHaveCount(0);
   const integrationGeometry = await page.locator('[data-integration="plex"]').evaluate((row) => {
     const content = row.querySelector('.section-content').getBoundingClientRect();
     const secondary = row.querySelector('.integration-secondary').getBoundingClientRect();
