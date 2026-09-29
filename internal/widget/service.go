@@ -17,8 +17,111 @@ type Service struct {
 	store    *persist.Store
 }
 
+const CurrentDefaultsVersion = 2
+
+var defaultWidgetsByIntegration = map[string][]string{
+	"truenas":        {"cpu", "cpu_temperature", "network", "truenas_alerts"},
+	"qweather":       {"weather"},
+	"plex":           {"plex"},
+	"jellyfin":       {"jellyfin"},
+	"qbittorrent":    {"qbittorrent"},
+	"uptime_kuma":    {"uptime_kuma"},
+	"home_assistant": {"home_assistant_fan"},
+}
+
 func NewService(registry *Registry, store *persist.Store) *Service {
 	return &Service{registry: registry, store: store}
+}
+
+func (s *Service) AddIntegrationDefaults(state *persist.State, instance persist.Integration) error {
+	definitions := defaultWidgetsByIntegration[instance.Type]
+	integrationTypes := make(map[string]string, len(state.Integrations))
+	for _, configured := range state.Integrations {
+		integrationTypes[configured.ID] = configured.Type
+	}
+	for _, definitionID := range definitions {
+		definition, ok := s.registry.Definition(definitionID)
+		if !ok {
+			return fmt.Errorf("default widget %q is not registered", definitionID)
+		}
+		alreadyPresent := false
+		usedIDs := map[string]bool{}
+		for index := range state.Widgets {
+			item := &state.Widgets[index]
+			usedIDs[item.ID] = true
+			if item.DefinitionID == definitionID {
+				alreadyPresent = true
+				if definition.IntegrationType != "" && integrationTypes[item.IntegrationID] != definition.IntegrationType {
+					item.IntegrationID = instance.ID
+				}
+			}
+		}
+		if alreadyPresent {
+			continue
+		}
+		sequence := 1
+		widgetID := fmt.Sprintf("%s-%d", definitionID, sequence)
+		for usedIDs[widgetID] {
+			sequence++
+			widgetID = fmt.Sprintf("%s-%d", definitionID, sequence)
+		}
+		state.Widgets = append(state.Widgets, persist.Widget{
+			ID: widgetID, DefinitionID: definitionID, IntegrationID: instance.ID,
+			Enabled: true, Order: len(state.Widgets), Config: cloneMap(definition.Defaults),
+		})
+	}
+	return nil
+}
+
+func (s *Service) MigrateDefaults() error {
+	if s.store.Snapshot().WidgetDefaultsVersion >= CurrentDefaultsVersion {
+		return nil
+	}
+	return s.store.Update(func(state *persist.State) error {
+		if state.WidgetDefaultsVersion >= CurrentDefaultsVersion {
+			return nil
+		}
+		if state.WidgetDefaultsVersion < 1 {
+			for _, instance := range state.Integrations {
+				if instance.Type == "home_assistant" {
+					if err := s.AddIntegrationDefaults(state, instance); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		if state.WidgetDefaultsVersion < 2 {
+			moveAutoAppendedFanBeforePlex(state)
+		}
+		state.WidgetDefaultsVersion = CurrentDefaultsVersion
+		return nil
+	})
+}
+
+func moveAutoAppendedFanBeforePlex(state *persist.State) {
+	sort.SliceStable(state.Widgets, func(i, j int) bool { return state.Widgets[i].Order < state.Widgets[j].Order })
+	if len(state.Widgets) < 2 || state.Widgets[len(state.Widgets)-1].DefinitionID != "home_assistant_fan" {
+		return
+	}
+	plexIndex := -1
+	for index, item := range state.Widgets {
+		if item.DefinitionID == "plex" {
+			plexIndex = index
+			break
+		}
+	}
+	if plexIndex < 0 {
+		return
+	}
+	fan := state.Widgets[len(state.Widgets)-1]
+	ordered := make([]persist.Widget, 0, len(state.Widgets))
+	ordered = append(ordered, state.Widgets[:plexIndex]...)
+	ordered = append(ordered, fan)
+	ordered = append(ordered, state.Widgets[plexIndex:len(state.Widgets)-1]...)
+	for index := range ordered {
+		ordered[index].Order = index
+	}
+	state.Widgets = ordered
 }
 func (s *Service) Catalog(capabilities map[string]bool) []Definition {
 	return s.registry.Catalog(capabilities)

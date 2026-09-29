@@ -56,6 +56,43 @@ func TestCurrentFanAuthenticatesAndMapsSupportedAttributes(t *testing.T) {
 	}
 }
 
+func TestCurrentPowerMapsWattsFromConfiguredSensor(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.EscapedPath() != "/api/states/sensor.nas_power" {
+			t.Errorf("escaped path = %q", request.URL.EscapedPath())
+		}
+		if got := request.Header.Get("Authorization"); got != "Bearer ha-test-token" {
+			t.Errorf("Authorization = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"state":"38","attributes":{"unit_of_measurement":"W","friendly_name":"NAS power"}}`))
+	}))
+	defer server.Close()
+
+	cfg := testConfig(server.URL)
+	cfg.PowerEntityID = "sensor.nas_power"
+	status, err := New(cfg, "ha-test-token", server.Client()).CurrentPower(context.Background())
+	if err != nil || !status.Available || status.Watts != 38 {
+		t.Fatalf("CurrentPower() = %#v, %v", status, err)
+	}
+}
+
+func TestCurrentPowerRejectsUnavailableAndNonPowerValues(t *testing.T) {
+	for _, body := range []string{
+		`{"state":"unavailable","attributes":{"unit_of_measurement":"W"}}`,
+		`{"state":"not-a-number","attributes":{"unit_of_measurement":"W"}}`,
+		`{"state":"38","attributes":{"unit_of_measurement":"kWh"}}`,
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+		cfg := testConfig(server.URL)
+		cfg.PowerEntityID = "sensor.nas_power"
+		if _, err := New(cfg, "token", server.Client()).CurrentPower(context.Background()); err == nil {
+			server.Close()
+			t.Fatalf("CurrentPower() accepted %s", body)
+		}
+		server.Close()
+	}
+}
+
 func TestCurrentFanEscapesEntityIDAsOnePathSegment(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.URL.EscapedPath() != "/api/states/fan.room%2Fguest" {

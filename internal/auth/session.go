@@ -4,11 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +45,7 @@ type Session struct {
 type Principal struct {
 	SessionID string
 	RemoteIP  string
+	Username  string
 }
 
 type sessionState struct {
@@ -62,6 +63,7 @@ type Manager struct {
 	mu       sync.Mutex
 	path     string
 	clock    func() time.Time
+	username string
 	record   *Record
 	sessions map[string]sessionState
 	reauth   map[string]reauthenticationState
@@ -83,10 +85,16 @@ func Open(path string, clock func() time.Time) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read auth record: %w", err)
 	}
-	var record Record
-	if err := json.Unmarshal(data, &record); err != nil || !validRecord(record) {
-		return nil, errors.New("auth record is invalid")
+	username, record, legacy, err := decodeCredentialRecord(data)
+	if err != nil {
+		return nil, err
 	}
+	if legacy {
+		if err := manager.writeRecord(username, record); err != nil {
+			return nil, fmt.Errorf("migrate auth record: %w", err)
+		}
+	}
+	manager.username = username
 	manager.record = &record
 	return manager, nil
 }
@@ -97,19 +105,30 @@ func (m *Manager) Configured() bool {
 	return m.record != nil
 }
 
-func (m *Manager) SetInitialPassword(password string) error {
+func (m *Manager) Username() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.username
+}
+
+func (m *Manager) SetInitialCredentials(username, password string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.record != nil {
 		return ErrAlreadyConfigured
 	}
+	username, err := ValidateUsername(username)
+	if err != nil {
+		return err
+	}
 	record, err := HashPassword([]byte(password))
 	if err != nil {
 		return err
 	}
-	if err := m.writeRecord(record); err != nil {
+	if err := m.writeRecord(username, record); err != nil {
 		return err
 	}
+	m.username = username
 	m.record = &record
 	return nil
 }
@@ -127,7 +146,7 @@ func (m *Manager) ChangePassword(current, replacement string) error {
 	if err != nil {
 		return err
 	}
-	if err := m.writeRecord(record); err != nil {
+	if err := m.writeRecord(m.username, record); err != nil {
 		return err
 	}
 	m.record = &record
@@ -136,13 +155,35 @@ func (m *Manager) ChangePassword(current, replacement string) error {
 	return nil
 }
 
-func (m *Manager) Login(remoteIP, password string) (Session, error) {
+func (m *Manager) ChangeUsername(currentPassword, replacement string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.record == nil {
+		return ErrNotConfigured
+	}
+	if !VerifyPassword(*m.record, []byte(currentPassword)) {
+		return ErrInvalidCredentials
+	}
+	username, err := ValidateUsername(replacement)
+	if err != nil {
+		return err
+	}
+	if err := m.writeRecord(username, *m.record); err != nil {
+		return err
+	}
+	m.username = username
+	clear(m.sessions)
+	clear(m.reauth)
+	return nil
+}
+
+func (m *Manager) Login(remoteIP, username, password string) (Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.record == nil {
 		return Session{}, ErrNotConfigured
 	}
-	if !VerifyPassword(*m.record, []byte(password)) {
+	if !loginCredentialsMatch(username, m.username, func() bool { return VerifyPassword(*m.record, []byte(password)) }) {
 		return Session{}, ErrInvalidCredentials
 	}
 	now := m.clock()
@@ -165,6 +206,12 @@ func (m *Manager) Login(remoteIP, password string) (Session, error) {
 	}, nil
 }
 
+func loginCredentialsMatch(username, expectedUsername string, verifyPassword func() bool) bool {
+	passwordMatches := verifyPassword()
+	usernameMatches := strings.EqualFold(strings.TrimSpace(username), expectedUsername)
+	return usernameMatches && passwordMatches
+}
+
 func (m *Manager) Authenticate(cookie string) (Principal, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -176,7 +223,7 @@ func (m *Manager) Authenticate(cookie string) (Principal, bool) {
 	}
 	state.lastSeen = now
 	m.sessions[cookie] = state
-	return Principal{SessionID: cookie, RemoteIP: state.remoteIP}, true
+	return Principal{SessionID: cookie, RemoteIP: state.remoteIP, Username: m.username}, true
 }
 
 func (m *Manager) CSRF(sessionID string) string {
@@ -242,17 +289,17 @@ func (m *Manager) RollbackInitialPassword() error {
 		return err
 	}
 	m.record = nil
+	m.username = ""
 	clear(m.sessions)
 	clear(m.reauth)
 	return nil
 }
 
-func (m *Manager) writeRecord(record Record) error {
-	data, err := json.MarshalIndent(record, "", "  ")
+func (m *Manager) writeRecord(username string, record Record) error {
+	data, err := encodeCredentialRecord(username, record)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
 	return persist.WriteAtomic(m.path, data, 0o600)
 }
 

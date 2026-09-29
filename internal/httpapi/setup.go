@@ -20,13 +20,14 @@ import (
 const setupJournalName = "setup.pending.json"
 
 type setupInput struct {
-	URL                  string `json:"url"`
-	Username             string `json:"username"`
-	APIKey               string `json:"api_key"`
-	InsecureSkipVerify   bool   `json:"insecure_skip_verify"`
-	Password             string `json:"password"`
-	PasswordConfirmation string `json:"password_confirmation"`
-	UseImported          bool   `json:"use_imported"`
+	URL                   string `json:"url"`
+	Username              string `json:"username"`
+	APIKey                string `json:"api_key"`
+	InsecureSkipVerify    bool   `json:"insecure_skip_verify"`
+	AdministratorUsername string `json:"administrator_username"`
+	Password              string `json:"password"`
+	PasswordConfirmation  string `json:"password_confirmation"`
+	UseImported           bool   `json:"use_imported"`
 }
 
 type setupJournal struct {
@@ -104,6 +105,11 @@ func (s *server) setupComplete(w http.ResponseWriter, request *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "password_confirmation")
 		return
 	}
+	administratorUsername, err := auth.ValidateUsername(input.AdministratorUsername)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_username")
+		return
+	}
 	if _, err := auth.HashPassword([]byte(input.Password)); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "password_policy")
 		return
@@ -146,7 +152,7 @@ func (s *server) setupComplete(w http.ResponseWriter, request *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "save_failed")
 		return
 	}
-	if err := s.auth.SetInitialPassword(input.Password); err != nil {
+	if err := s.auth.SetInitialCredentials(administratorUsername, input.Password); err != nil {
 		_ = os.Remove(journalPath)
 		writeAPIError(w, http.StatusConflict, "administrator_exists")
 		return

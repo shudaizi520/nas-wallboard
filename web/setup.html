@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <link rel="icon" type="image/svg+xml" href="/icon.svg?v=1">
-  <link rel="stylesheet" href="/admin.css?v=1">
+  <link rel="stylesheet" href="/admin.css?v=2">
   <title>设置 NAS Wallboard</title>
 </head>
 <body>
@@ -32,6 +32,14 @@
           <h1>几分钟完成设置</h1>
           <p class="lead">之后所有功能都可以在网页里管理，不需要编辑 YAML，也不需要再找 Codex。当前版本专门支持 TrueNAS SCALE 25.10 及以上版本。</p>
           <div class="info-card"><strong>开始前准备</strong><br>请在 TrueNAS 中创建一个专用的只读服务账户和 API Key。向导会逐项验证实际权限，不会把密钥显示在设置结果里。</div>
+          <details class="setup-help">
+            <summary>怎么创建专用账户和 API Key？</summary>
+            <ol>
+              <li>在 TrueNAS 打开“凭据 → 用户”，新建一个只供 Wallboard 使用的账户。</li>
+              <li>只授予读取系统、存储、硬盘、网络、应用和告警所需的权限；连接测试会列出缺少的项目。</li>
+              <li>选中该用户，在 Access 区域进入“View API Keys → Add API Key”；也可以从右上角账户菜单进入“My API Keys”。创建后立即复制保存。</li>
+            </ol>
+          </details>
           <label class="check-row" for="compatibility">
             <input id="compatibility" type="checkbox">
             <span>我使用的是 TrueNAS SCALE 25.10 或更高版本，并会使用专用账户。</span>
@@ -82,9 +90,14 @@
 
         <section class="step-panel" data-step="3" hidden>
           <p class="eyebrow">第四步 · 本地管理</p>
-          <h1>创建管理员密码</h1>
-          <p class="lead">这个密码只保护 NAS Wallboard 的管理页面，不会修改 TrueNAS 账户。会使用 Argon2id 加密保存。</p>
+          <h1>创建管理员账户</h1>
+          <p class="lead">这个账户只保护 NAS Wallboard 的管理页面，不会修改 TrueNAS 账户。密码会使用 Argon2id 加密保存。</p>
           <div class="form-grid">
+            <div class="field field--wide">
+              <label for="administrator-username">管理员用户名</label>
+              <input id="administrator-username" type="text" value="admin" autocomplete="username" autocapitalize="none" spellcheck="false">
+              <small data-error="administratorUsername"></small>
+            </div>
             <div class="field">
               <label for="password">管理员密码</label>
               <input id="password" type="password" autocomplete="new-password">
@@ -113,6 +126,7 @@
             <div><dt>TrueNAS 连接</dt><dd id="review-address"></dd></div>
             <div><dt>检测版本</dt><dd id="review-version"></dd></div>
             <div><dt>发现资源</dt><dd id="review-resources"></dd></div>
+            <div><dt>管理员用户名</dt><dd id="review-administrator"></dd></div>
             <div><dt>配置存储</dt><dd>NAS Wallboard 持久化数据目录</dd></div>
             <div><dt>管理员密码</dt><dd>已设置，不会显示或返回</dd></div>
           </dl>
@@ -126,6 +140,6 @@
       </form>
     </section>
   </main>
-  <script type="module" src="/setup.js?v=1"></script>
+  <script type="module" src="/setup.js?v=2"></script>
 </body>
 </html>

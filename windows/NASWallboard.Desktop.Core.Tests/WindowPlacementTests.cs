@@ -6,6 +6,51 @@ namespace NASWallboard.Desktop.Core.Tests;
 public sealed class WindowPlacementTests
 {
     [TestMethod]
+    public void DefaultPlacementUsesTheTopRightCornerWithACompactInset()
+    {
+        var area = new ScreenRect(0, 0, 1920, 1040);
+
+        Assert.AreEqual(
+            new ScreenRect(1520, 24, 376, 340),
+            WindowPlacement.TopRight(area, 376, 340));
+    }
+
+    [TestMethod]
+    public void ResizeKeepsTheRightEdgeStableForATopRightWidget()
+    {
+        var areas = new[] { new ScreenRect(0, 0, 1920, 1040) };
+        var current = new ScreenRect(1520, 24, 376, 340);
+        var loading = WindowPlacement.Resize(current, 560, 340, areas);
+        var loaded = WindowPlacement.Resize(loading, 376, 340, areas);
+
+        Assert.AreEqual(new ScreenRect(1336, 24, 560, 340), loading);
+        Assert.AreEqual(current, loaded);
+    }
+
+    [TestMethod]
+    public void ResizeKeepsTheLeftEdgeStableAwayFromTheRightCorner()
+    {
+        var areas = new[] { new ScreenRect(0, 0, 1920, 1040) };
+        var current = new ScreenRect(600, 120, 420, 260);
+
+        Assert.AreEqual(
+            new ScreenRect(600, 120, 376, 340),
+            WindowPlacement.Resize(current, 376, 340, areas));
+    }
+
+    [TestMethod]
+    public void PersistenceStartsOnlyAfterInitialPlacementCompletes()
+    {
+        var saved = new PixelPoint(1480, 72);
+        var transientStartupPosition = new PixelPoint(0, 0);
+        var movedPosition = new PixelPoint(1320, 96);
+
+        Assert.IsFalse(WindowPlacement.ShouldPersist(false, transientStartupPosition, saved));
+        Assert.IsFalse(WindowPlacement.ShouldPersist(true, saved, saved));
+        Assert.IsTrue(WindowPlacement.ShouldPersist(true, movedPosition, saved));
+    }
+
+    [TestMethod]
     public void ClampMovesAnOffScreenWindowToTheNearestWorkArea()
     {
         var areas = new[] { new ScreenRect(0, 0, 1920, 1040), new ScreenRect(1920, 0, 1920, 1040) };

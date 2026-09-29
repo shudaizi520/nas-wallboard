@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"time"
 
@@ -117,6 +118,39 @@ func (s *server) managePassword(w http.ResponseWriter, request *http.Request) {
 	}
 	expireSessionCookie(w, request)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) manageUsername(w http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	principal, ok := s.requireManagement(w, request)
+	if !ok || !s.requireMutation(w, request, principal) {
+		return
+	}
+	var input struct {
+		CurrentPassword string `json:"current_password"`
+		Username        string `json:"username"`
+	}
+	if decodeJSON(w, request, 16*1024, &input) != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if _, err := auth.ValidateUsername(input.Username); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_username")
+		return
+	}
+	if err := s.auth.ChangeUsername(input.CurrentPassword, input.Username); err != nil {
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			writeAPIError(w, http.StatusUnauthorized, "invalid_credentials")
+			return
+		}
+		writeAPIError(w, http.StatusBadRequest, "username_change_failed")
+		return
+	}
+	expireSessionCookie(w, request)
+	writeJSON(w, http.StatusOK, map[string]string{"username": s.auth.Username()})
 }
 
 func (s *server) manageReset(w http.ResponseWriter, request *http.Request) {

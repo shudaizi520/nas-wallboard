@@ -18,6 +18,7 @@ func testRegistry(t *testing.T) *Registry {
 		{ID: "cpu", LegacyType: "cpu", Placement: PlacementMetric, Label: "处理器", Visibility: VisibilityAlways, Defaults: map[string]any{}},
 		{ID: "disk_temperature", LegacyType: "disk_temperature", IntegrationType: "truenas", Placement: PlacementMetric, Label: "硬盘温度", Visibility: VisibilityAlways, AllowMultiple: true, Fields: []integration.Field{{Key: "serial", Kind: integration.FieldText}}, Defaults: map[string]any{}},
 		{ID: "plex", LegacyType: "plex", IntegrationType: "plex", Placement: PlacementActivity, Label: "Plex 播放", Visibility: VisibilityNonEmpty, Fields: []integration.Field{{Key: "limit", Kind: integration.FieldInteger}}, Defaults: map[string]any{"limit": 3}},
+		{ID: "home_assistant_fan", LegacyType: "home_assistant_fan", IntegrationType: "home_assistant", Placement: PlacementActivity, Label: "设备提醒", Visibility: VisibilityNonEmpty, Defaults: map[string]any{}},
 		{ID: "truenas_alerts", LegacyType: "truenas_alerts", IntegrationType: "truenas", Placement: PlacementActivity, Label: "NAS 告警", Visibility: VisibilityWarningOnly, Fields: []integration.Field{{Key: "limit", Kind: integration.FieldInteger}}, Defaults: map[string]any{"limit": 2}},
 	} {
 		if err := registry.Register(definition); err != nil {
@@ -53,6 +54,126 @@ func TestServiceMigratesLegacyOrderAndPreservesDiskMatch(t *testing.T) {
 	}
 	if layout.Widgets[1].Config["serial"] != "ABC" || fmt.Sprint(layout.Widgets[2].Config["limit"]) != "4" {
 		t.Fatalf("configs = %#v %#v", layout.Widgets[1].Config, layout.Widgets[2].Config)
+	}
+}
+
+func TestServiceAddsDefaultWidgetForNewHomeAssistantIntegration(t *testing.T) {
+	store, err := persist.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(testRegistry(t), store)
+	instance := persist.Integration{ID: "home-main", Type: "home_assistant", Enabled: true}
+	if err := store.Update(func(state *persist.State) error {
+		state.Integrations = append(state.Integrations, instance)
+		return service.AddIntegrationDefaults(state, instance)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	widgets := store.Snapshot().Widgets
+	if len(widgets) != 1 || widgets[0].DefinitionID != "home_assistant_fan" || widgets[0].IntegrationID != "home-main" || !widgets[0].Enabled || widgets[0].Order != 0 {
+		t.Fatalf("widgets = %#v", widgets)
+	}
+	if err := store.Update(func(state *persist.State) error { return service.AddIntegrationDefaults(state, instance) }); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(store.Snapshot().Widgets); got != 1 {
+		t.Fatalf("duplicate default widgets = %d", got)
+	}
+}
+
+func TestServiceRebindsDefaultWidgetWhenIntegrationIsRecreated(t *testing.T) {
+	store, err := persist.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(testRegistry(t), store)
+	if err := store.Update(func(state *persist.State) error {
+		state.Widgets = []persist.Widget{{
+			ID: "plex-1", DefinitionID: "plex", IntegrationID: "removed-plex",
+			Enabled: true, Order: 0, Config: map[string]any{"limit": 4},
+		}}
+		instance := persist.Integration{ID: "replacement-plex", Type: "plex", Enabled: true}
+		state.Integrations = []persist.Integration{instance}
+		return service.AddIntegrationDefaults(state, instance)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	widgets := store.Snapshot().Widgets
+	if len(widgets) != 1 {
+		t.Fatalf("widgets = %#v", widgets)
+	}
+	if widgets[0].IntegrationID != "replacement-plex" || !widgets[0].Enabled || fmt.Sprint(widgets[0].Config["limit"]) != "4" {
+		t.Fatalf("rebound widget = %#v", widgets[0])
+	}
+}
+
+func TestServiceMigratesMissingHomeAssistantWidgetOnlyOnce(t *testing.T) {
+	store, err := persist.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(func(state *persist.State) error {
+		state.WidgetDefaultsVersion = 0
+		state.Integrations = []persist.Integration{{ID: "home-main", Type: "home_assistant", Enabled: true}}
+		state.Widgets = []persist.Widget{{ID: "cpu-1", DefinitionID: "cpu", Enabled: true, Order: 0}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(testRegistry(t), store)
+	if err := service.MigrateDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	state := store.Snapshot()
+	if state.WidgetDefaultsVersion != CurrentDefaultsVersion || len(state.Widgets) != 2 || state.Widgets[1].DefinitionID != "home_assistant_fan" {
+		t.Fatalf("migrated state = %#v", state)
+	}
+	if err := store.Update(func(state *persist.State) error {
+		state.Widgets = state.Widgets[:1]
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.MigrateDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(store.Snapshot().Widgets); got != 1 {
+		t.Fatalf("manual removal was undone: %d widgets", got)
+	}
+}
+
+func TestServiceMovesAutoAppendedFanBeforePlexOnce(t *testing.T) {
+	store, err := persist.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(func(state *persist.State) error {
+		state.WidgetDefaultsVersion = 1
+		state.Integrations = []persist.Integration{
+			{ID: "plex-main", Type: "plex", Enabled: true},
+			{ID: "home-main", Type: "home_assistant", Enabled: true},
+		}
+		state.Widgets = []persist.Widget{
+			{ID: "cpu-1", DefinitionID: "cpu", Enabled: true, Order: 0},
+			{ID: "plex-1", DefinitionID: "plex", IntegrationID: "plex-main", Enabled: true, Order: 1},
+			{ID: "fan-1", DefinitionID: "home_assistant_fan", IntegrationID: "home-main", Enabled: true, Order: 2},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(testRegistry(t), store)
+	if err := service.MigrateDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	layout := service.Layout()
+	got := []string{layout.Widgets[0].DefinitionID, layout.Widgets[1].DefinitionID, layout.Widgets[2].DefinitionID}
+	if !reflect.DeepEqual(got, []string{"cpu", "home_assistant_fan", "plex"}) {
+		t.Fatalf("migrated widget order = %#v", got)
+	}
+	if store.Snapshot().WidgetDefaultsVersion != CurrentDefaultsVersion {
+		t.Fatalf("defaults version = %d, want %d", store.Snapshot().WidgetDefaultsVersion, CurrentDefaultsVersion)
 	}
 }
 

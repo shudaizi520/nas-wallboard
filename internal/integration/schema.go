@@ -34,6 +34,7 @@ type Field struct {
 	Kind        FieldKind `json:"kind"`
 	Label       string    `json:"label"`
 	Help        string    `json:"help"`
+	Advanced    bool      `json:"advanced,omitempty"`
 	Placeholder string    `json:"placeholder,omitempty"`
 	Required    bool      `json:"required,omitempty"`
 	Default     any       `json:"default,omitempty"`
@@ -50,6 +51,7 @@ type PublicField struct {
 	Kind        FieldKind `json:"kind"`
 	Label       string    `json:"label"`
 	Help        string    `json:"help"`
+	Advanced    bool      `json:"advanced,omitempty"`
 	Placeholder string    `json:"placeholder,omitempty"`
 	Required    bool      `json:"required,omitempty"`
 	Default     any       `json:"default,omitempty"`
@@ -67,7 +69,7 @@ var (
 
 func (field Field) public() PublicField {
 	result := PublicField{
-		Key: field.Key, Kind: field.Kind, Label: field.Label, Help: field.Help,
+		Key: field.Key, Kind: field.Kind, Label: field.Label, Help: field.Help, Advanced: field.Advanced,
 		Placeholder: field.Placeholder, Required: field.Required, Options: slices.Clone(field.Options),
 		Minimum: cloneNumber(field.Minimum), Maximum: cloneNumber(field.Maximum), Configured: field.Configured,
 	}

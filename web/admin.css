@@ -98,6 +98,11 @@ h1 { margin: 0; font-size: clamp(26px, 4vw, 36px); font-weight: 650; letter-spac
 .notice--warning { border-color: rgba(255, 204, 104, 0.22); background: rgba(255, 181, 68, 0.08); }
 .notice strong { color: #edf7ff; }
 
+.setup-help { margin-top: 14px; border-bottom: 1px solid var(--line); }
+.setup-help summary { padding: 8px 0 13px; color: #b9c8da; font-size: 13px; cursor: pointer; }
+.setup-help ol { margin: 0 0 15px; padding-left: 21px; color: #91a2b8; font-size: 12px; line-height: 1.7; }
+.setup-help li + li { margin-top: 4px; }
+
 .check-row { display: flex; align-items: flex-start; gap: 11px; margin-top: 24px; cursor: pointer; }
 .check-row input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); }
 .check-row span { color: #dfe9f7; font-size: 14px; line-height: 1.55; }

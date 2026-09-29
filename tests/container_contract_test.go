@@ -13,6 +13,18 @@ type composeFile struct {
 	Services map[string]composeService `yaml:"services"`
 }
 
+type homeAssistantComposeFile struct {
+	Services map[string]struct {
+		Image           string   `yaml:"image"`
+		Privileged      bool     `yaml:"privileged"`
+		NetworkMode     string   `yaml:"network_mode"`
+		Ports           []string `yaml:"ports"`
+		Restart         string   `yaml:"restart"`
+		StopGracePeriod string   `yaml:"stop_grace_period"`
+		Volumes         []string `yaml:"volumes"`
+	} `yaml:"services"`
+}
+
 type composeService struct {
 	Image      string         `yaml:"image"`
 	Build      any            `yaml:"build"`
@@ -115,6 +127,35 @@ func TestLocalComposeMatchesRuntimeSecurityContract(t *testing.T) {
 	}
 	if !equalStrings(initializer.CapAdd, []string{"CHOWN", "FOWNER"}) || initializer.PidsLimit > 16 || initializer.MemLimit != "32m" {
 		t.Fatalf("initializer privileges/limits = %#v", initializer)
+	}
+}
+
+func TestHomeAssistantComposeMatchesSupportedContainerInstall(t *testing.T) {
+	var document homeAssistantComposeFile
+	if err := yaml.Unmarshal(projectFile(t, "deploy/home-assistant.compose.yaml"), &document); err != nil {
+		t.Fatalf("decode Home Assistant compose: %v", err)
+	}
+	service, ok := document.Services["homeassistant"]
+	if !ok {
+		t.Fatal("Home Assistant compose has no homeassistant service")
+	}
+	if service.Image != "ghcr.io/home-assistant/home-assistant:stable" || !service.Privileged || service.NetworkMode != "" {
+		t.Fatalf("Home Assistant runtime = %#v", service)
+	}
+	if !contains(service.Ports, "8123:8123") {
+		t.Fatalf("Home Assistant published ports = %#v", service.Ports)
+	}
+	if service.Restart != "unless-stopped" || service.StopGracePeriod != "60s" {
+		t.Fatalf("Home Assistant lifecycle = %#v", service)
+	}
+	for _, required := range []string{
+		"/mnt/program/home-assistant/config:/config",
+		"/etc/localtime:/etc/localtime:ro",
+		"/run/dbus:/run/dbus:ro",
+	} {
+		if !contains(service.Volumes, required) {
+			t.Errorf("Home Assistant volumes missing %q: %#v", required, service.Volumes)
+		}
 	}
 }
 

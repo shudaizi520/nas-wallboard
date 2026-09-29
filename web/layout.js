@@ -89,6 +89,32 @@ export function isLayoutDirty(saved, current) {
   return JSON.stringify(saved) !== JSON.stringify(current);
 }
 
+export function layoutPresentation(saved, current, catalog, sources) {
+  const definitions = new Map(catalog.map((item) => [item.id, item]));
+  const instances = new Map(current.widgets.map((item) => [item.definition_id, item]));
+  const visible = current.widgets.filter((item) => item.enabled).map((item) => {
+    const definition = definitions.get(item.definition_id);
+    const matchingSources = sources.filter((source) => source.type === definition?.integration_type);
+    const controls = [];
+    if (definition?.integration_type && matchingSources.length > 1) controls.push({key: 'integration_id', kind: 'source', label: '数据来源'});
+    for (const field of definition?.fields ?? []) controls.push({key: field.key, kind: field.kind, label: field.label});
+    const controlLayout = controls.length === 0 ? 'none' : controls.length === 1 ? 'single' : 'grid';
+    return {id: item.id, definition, item, controls, controlLayout};
+  });
+  const grouped = new Map();
+  for (const definition of catalog) {
+    if (instances.get(definition.id)?.enabled) continue;
+    const source = definition.integration_type || 'general';
+    if (!grouped.has(source)) grouped.set(source, []);
+    grouped.get(source).push(definition);
+  }
+  return {
+    visible,
+    availableGroups: [...grouped].map(([source, items]) => ({source, items})),
+    actionBarHidden: !isLayoutDirty(saved, current),
+  };
+}
+
 function browserPreviewEnvironment() {
   return {
     isVisible: () => document.visibilityState !== 'hidden',
@@ -97,6 +123,23 @@ function browserPreviewEnvironment() {
       document.addEventListener('visibilitychange', listener);
       return () => document.removeEventListener('visibilitychange', listener);
     },
+    onPanelSize(iframe, callback) {
+      let observer;
+      const measure = () => {
+        const panel = iframe.contentDocument?.querySelector('.glass-panel');
+        if (!panel) return;
+        const report = () => {
+          const bounds = panel.getBoundingClientRect();
+          callback({width: bounds.width, height: bounds.height});
+        };
+        observer?.disconnect();
+        observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(report);
+        observer?.observe(panel);
+        report();
+      };
+      iframe.addEventListener('load', measure);
+      return () => { iframe.removeEventListener('load', measure); observer?.disconnect(); };
+    },
   };
 }
 
@@ -104,6 +147,19 @@ export function createPreviewController(iframe, environment = browserPreviewEnvi
   let revision = 0;
   let stopped = true;
   let unsubscribe = () => {};
+  let unsubscribeSize = () => {};
+  let viewportWidth = 0;
+  let panelSize = null;
+  const fit = () => {
+    if (!panelSize) return;
+    const stage = iframe.parentElement;
+    const width = viewportWidth || panelSize.width;
+    const scale = Math.min(1, Math.max(0.45, ((stage.clientWidth || width) - 28) / width));
+    iframe.style.width = `${width}px`;
+    iframe.style.height = `${Math.ceil(panelSize.height)}px`;
+    iframe.style.transform = `translateX(-50%) scale(${scale})`;
+    stage.style.height = `${Math.ceil(panelSize.height * scale + 36)}px`;
+  };
   const show = () => { revision += 1; iframe.src = `/?desktop=1&preview=${revision}`; };
   const visibility = (visible) => {
     if (stopped) return;
@@ -115,10 +171,12 @@ export function createPreviewController(iframe, environment = browserPreviewEnvi
       if (!stopped) return;
       stopped = false;
       unsubscribe = environment.onVisibilityChange(visibility);
+      unsubscribeSize = environment.onPanelSize?.(iframe, (size) => { panelSize = size; fit(); }) ?? (() => {});
       visibility(environment.isVisible());
     },
     refresh() { if (!stopped && environment.isVisible()) show(); },
-    stop() { stopped = true; unsubscribe(); iframe.src = 'about:blank'; },
+    setViewportWidth(value) { viewportWidth = Number(value) || 0; fit(); },
+    stop() { stopped = true; unsubscribe(); unsubscribeSize(); iframe.src = 'about:blank'; },
   };
 }
 
@@ -154,9 +212,11 @@ export function createLayoutEditor(root, api, options = {}) {
   const widthValue = root.querySelector('#width-value');
   const list = root.querySelector('#layout-items');
   const library = root.querySelector('#widget-library');
+  const librarySection = root.querySelector('#available-content-section');
   const status = root.querySelector('#status');
   const save = root.querySelector('#save');
   const reset = root.querySelector('#reset-layout');
+  const actions = root.querySelector('#layout-actions');
   const preview = createPreviewController(root.querySelector('#layout-preview'), options.previewEnvironment);
   let catalog = [];
   let sources = [];
@@ -165,30 +225,29 @@ export function createLayoutEditor(root, api, options = {}) {
   let dragged = '';
 
   const setStatus = (message, tone = '') => { status.textContent = message; status.dataset.tone = tone; };
-  const changed = () => setStatus(isLayoutDirty(saved, current) ? '有未保存的更改' : '', 'pending');
+  const changed = () => {
+    const dirty = isLayoutDirty(saved, current);
+    actions.hidden = !dirty;
+    setStatus(dirty ? '有未保存的更改' : '', 'pending');
+  };
 
   const render = () => {
     width.min = 300; width.max = 720; width.value = current.width; widthValue.value = `${current.width}px`;
-    const iframe = root.querySelector('#layout-preview');
-    const stage = iframe.parentElement;
-    const previewScale = Math.min(1, Math.max(0.45, ((stage.clientWidth || 360) - 28) / current.width));
-    iframe.style.width = `${current.width}px`;
-    iframe.style.transform = `translateX(-50%) scale(${previewScale})`;
+    preview.setViewportWidth(current.width);
+    const presentation = layoutPresentation(saved, current, catalog, sources);
+    actions.hidden = presentation.actionBarHidden;
     list.replaceChildren();
-    const definitions = new Map(catalog.map((item) => [item.id, item]));
-    for (const item of current.widgets) {
-      const definition = definitions.get(item.definition_id);
-      if (!definition) continue;
+    for (const rowData of presentation.visible) {
+      const {item, definition} = rowData;
       const row = documentRef.createElement('article');
-      row.className = 'layout-item'; row.dataset.id = item.id; row.draggable = true; row.tabIndex = 0;
+      row.className = 'layout-item'; row.dataset.id = item.id; row.dataset.controls = rowData.controlLayout; row.draggable = true; row.tabIndex = 0;
       const main = documentRef.createElement('div'); main.className = 'layout-item-main';
       const handle = documentRef.createElement('span'); handle.className = 'drag-handle'; handle.textContent = '⋮⋮'; handle.title = '拖动排序';
       const checkbox = documentRef.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = item.enabled; checkbox.setAttribute('aria-label', `显示${definition.label}`);
       checkbox.addEventListener('change', () => { current = updateWidget(current, item.id, {enabled: checkbox.checked}); changed(); render(); });
       const copyBlock = documentRef.createElement('div'); copyBlock.className = 'layout-item-copy';
       const heading = documentRef.createElement('strong'); heading.textContent = definition.label;
-      const note = documentRef.createElement('small'); note.textContent = definition.visibility === 'always' ? '始终显示' : definition.visibility === 'warning_only' ? '仅有异常时显示' : '有内容时显示';
-      copyBlock.append(heading, note);
+      copyBlock.append(heading);
       const moves = documentRef.createElement('div'); moves.className = 'moves';
       for (const [symbol, delta, title] of [['↑', -1, '上移'], ['↓', 1, '下移']]) {
         const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = symbol; button.title = title;
@@ -223,19 +282,22 @@ export function createLayoutEditor(root, api, options = {}) {
       list.append(row);
     }
     library.replaceChildren();
-    const present = new Set(current.widgets.map((item) => item.definition_id));
-    for (const definition of catalog.filter((item) => !present.has(item.id))) {
-      const button = documentRef.createElement('button'); button.type = 'button'; button.className = 'widget-library-item';
-      button.textContent = `＋ ${definition.label}`;
-      button.addEventListener('click', () => { current = toggleDefinition(current, definition.id, true, catalog, sources); changed(); render(); });
-      library.append(button);
+    for (const group of presentation.availableGroups) {
+      const section = documentRef.createElement('section'); section.className = 'widget-library-group'; section.dataset.source = group.source;
+      const heading = documentRef.createElement('h3'); heading.textContent = group.source === 'truenas' ? 'TrueNAS' : group.source === 'general' ? '通用' : group.source;
+      const items = documentRef.createElement('div'); items.className = 'widget-library-items';
+      for (const definition of group.items) {
+        const button = documentRef.createElement('button'); button.type = 'button'; button.className = 'widget-library-item';
+        button.textContent = `＋ ${definition.label}`;
+        button.addEventListener('click', () => { current = toggleDefinition(current, definition.id, true, catalog, sources); changed(); render(); });
+        items.append(button);
+      }
+      section.append(heading, items); library.append(section);
     }
-    if (!library.childElementCount) {
-      const empty = documentRef.createElement('p'); empty.className = 'widget-library-empty'; empty.textContent = '当前可添加的组件都已显示'; library.append(empty);
-    }
+    librarySection.hidden = !library.childElementCount;
   };
 
-  width.addEventListener('input', () => { current.width = Number(width.value); widthValue.value = `${current.width}px`; changed(); });
+  width.addEventListener('input', () => { current.width = Number(width.value); widthValue.value = `${current.width}px`; preview.setViewportWidth(current.width); changed(); });
   reset.addEventListener('click', () => { current.widgets.forEach((item) => { current = resetWidget(current, item.id, catalog); }); changed(); render(); });
   save.addEventListener('click', async () => {
     const errors = validateLayout(current, catalog, sources);

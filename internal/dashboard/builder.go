@@ -102,7 +102,7 @@ func (b *Builder) Build(snapshot model.Snapshot, now time.Time) View {
 	activities := append([]config.ActivityConfig(nil), b.activities...)
 	legacyDiskMode := b.legacyDiskMode
 	b.mu.RUnlock()
-	view := View{Width: width, ConnectionTone: "bad", Uptime: compactUptime(snapshot.System), Metrics: make([]Metric, 0, len(metrics)), Activities: []Activity{}}
+	view := View{Width: width, ConnectionTone: "bad", Uptime: compactUptime(snapshot.System), NASPower: compactNASPower(snapshot.HomePower), Metrics: make([]Metric, 0, len(metrics)), Activities: []Activity{}}
 	if snapshot.Connected {
 		view.ConnectionTone = "good"
 	}
@@ -147,9 +147,7 @@ func (b *Builder) Build(snapshot model.Snapshot, now time.Time) View {
 				view.Activities = append(view.Activities, activity)
 			}
 		case config.ActivityTypeWeather:
-			if activity, ok := weatherActivity(snapshot.Weather); ok {
-				view.Activities = append(view.Activities, activity)
-			}
+			view.Activities = append(view.Activities, weatherActivities(snapshot.Weather)...)
 		case config.ActivityTypeMemoryPressure:
 			if activity, ok := memoryPressureActivity(snapshot.Memory, configured); ok {
 				view.Activities = append(view.Activities, activity)
@@ -200,6 +198,13 @@ func compactUptime(module model.Module[model.SystemStatus]) string {
 	return ""
 }
 
+func compactNASPower(module model.Module[model.PowerStatus]) string {
+	if module.Stale || module.Error != "" || !module.Data.Available || invalidNumber(module.Data.Watts) || module.Data.Watts < 0 {
+		return ""
+	}
+	return strconv.Itoa(int(math.Round(module.Data.Watts))) + "W"
+}
+
 func monitorActivity(module model.Module[model.MonitorStatus]) (Activity, bool) {
 	if module.Stale || module.Error != "" {
 		return Activity{ID: "uptime-unavailable", Icon: "uptime", Tone: "bad", Title: "服务监控", Value: "不可用"}, true
@@ -226,17 +231,17 @@ func mediaActivities(module model.Module[model.MediaStatus], id, title string) [
 		if len(module.Data.Sessions) > 1 {
 			activityID = fmt.Sprintf("%s:%d", id, index)
 		}
-		value := "播放"
+		state := "播放"
 		if session.Paused {
-			value = "暂停"
+			state = "暂停"
 		}
-		details := []string{firstNonEmpty(strings.TrimSpace(session.Title), "媒体")}
+		details := []string{state}
 		if device := strings.TrimSpace(session.Device); device != "" {
 			details = append(details, device)
 		}
 		activities = append(activities, Activity{
 			ID: activityID, Icon: "play", Tone: "active", Title: title,
-			Value: value, Detail: strings.Join(details, " · "),
+			Value: firstNonEmpty(strings.TrimSpace(session.Title), "媒体"), Detail: strings.Join(details, " · "),
 		})
 	}
 	return activities
@@ -253,12 +258,18 @@ func downloadsActivity(module model.Module[model.DownloadStatus]) (Activity, boo
 	if module.Data.DownloadBps > 0 {
 		value += " · " + formatBytesPerSecond(module.Data.DownloadBps)
 	}
-	detail := ""
-	if len(module.Data.Items) > 0 {
-		item := module.Data.Items[0]
-		detail = firstNonEmpty(strings.TrimSpace(item.Name), "下载任务") + " · " + compactNumber(math.Round(item.ProgressPercent)) + "%"
+	progress := make(ProgressList, 0, len(module.Data.Items))
+	for _, item := range module.Data.Items {
+		percent := int(math.Round(item.ProgressPercent))
+		if percent < 0 {
+			percent = 0
+		}
+		if percent > 100 {
+			percent = 100
+		}
+		progress = append(progress, percent)
 	}
-	return Activity{ID: "downloads", Icon: "download", Tone: "active", Title: "下载", Value: value, Detail: detail}, true
+	return Activity{ID: "downloads", Icon: "download", Tone: "active", Title: "下载", Value: value, Progress: &progress}, true
 }
 
 func formatBytesPerSecond(value int64) string {
@@ -462,28 +473,21 @@ func diskMetric(module model.Module[[]model.DiskStatus], health model.Module[[]m
 	}
 	metric.Value = compactNumber(selected.Temperature) + "°"
 	metric.Tone = "neutral"
-	if state, configured := selectedDiskHealth(health, selected); configured {
+	if state, matched := selectedDiskHealth(health, selected); matched {
 		switch state {
 		case "healthy":
 			metric.Tone = "neutral"
 		case "failed":
 			metric.Value += " · SMART"
 			metric.Tone = "bad"
-		default:
-			metric.Value += " · 未知"
-			metric.Tone = "warn"
 		}
 	}
 	return metric
 }
 
 func selectedDiskHealth(module model.Module[[]model.DiskHealthStatus], disk model.DiskStatus) (string, bool) {
-	configured := !module.UpdatedAt.IsZero() || module.Error != "" || len(module.Data) > 0
-	if !configured {
+	if module.Stale || module.Error != "" || len(module.Data) == 0 || strings.TrimSpace(disk.Model) == "" || disk.SizeBytes == 0 {
 		return "", false
-	}
-	if module.Stale || module.Error != "" {
-		return "unknown", true
 	}
 	matches := make([]model.DiskHealthStatus, 0, 1)
 	for _, candidate := range module.Data {
@@ -494,14 +498,22 @@ func selectedDiskHealth(module model.Module[[]model.DiskHealthStatus], disk mode
 	if len(matches) > 1 && disk.Name != "" {
 		for _, candidate := range matches {
 			if candidate.Name == disk.Name {
-				return candidate.State, true
+				return recognizedDiskHealth(candidate.State)
 			}
 		}
 	}
 	if len(matches) == 1 {
-		return matches[0].State, true
+		return recognizedDiskHealth(matches[0].State)
 	}
-	return "unknown", true
+	return "", false
+}
+
+func recognizedDiskHealth(state string) (string, bool) {
+	state = strings.ToLower(strings.TrimSpace(state))
+	if state != "healthy" && state != "failed" {
+		return "", false
+	}
+	return state, true
 }
 
 func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) {
@@ -509,30 +521,123 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	if !weather.Enabled {
 		return Activity{}, false
 	}
-	location := strings.TrimSpace(weather.Name)
 	if module.Stale || module.Error != "" || invalidNumber(weather.Temperature) || strings.TrimSpace(weather.Condition) == "" {
-		return Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用", Detail: location}, true
+		return Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用"}, true
 	}
 	value := compactNumber(math.Round(weather.Temperature)) + "° · " + strings.TrimSpace(weather.Condition)
 	detail := compactRainSummary(weather.RainSummary)
 	tone := "active"
 	if len(weather.Warnings) > 0 {
-		warning := weather.Warnings[0]
-		detail = firstNonEmpty(compactWeatherWarningTitle(warning.Title), detail)
-		tone = weatherWarningTone(warning)
+		if summary, warningTone := weatherWarningSummary(weather.Warnings); summary != "" {
+			detail = summary
+			tone = warningTone
+		}
 	}
-	detail = strings.Join(nonEmptyStrings(location, detail), " · ")
 	return Activity{ID: "weather", Icon: weatherIcon(weather.ConditionCode), Tone: tone, Value: value, Detail: detail}, true
 }
 
-func compactWeatherWarningTitle(value string) string {
+func weatherActivities(module model.Module[model.WeatherStatus]) []Activity {
+	current, ok := weatherActivity(module)
+	if !ok {
+		return nil
+	}
+	result := []Activity{current}
+	if module.Stale || module.Error != "" {
+		return result
+	}
+	for _, forecast := range module.Data.Forecasts {
+		if len(result) == 3 {
+			break
+		}
+		if strings.TrimSpace(forecast.Condition) == "" || invalidNumber(forecast.TemperatureMin) || invalidNumber(forecast.TemperatureMax) {
+			continue
+		}
+		result = append(result, Activity{
+			ID: "weather:forecast:" + strconv.Itoa(len(result)-1), Icon: weatherIcon(forecast.ConditionCode), Tone: "neutral",
+			Value: strings.TrimSpace(forecast.Condition), Detail: compactNumber(math.Round(forecast.TemperatureMin)) + "°–" + compactNumber(math.Round(forecast.TemperatureMax)) + "° · 雨" + compactNumber(math.Round(forecast.PrecipitationProbability*100)) + "%",
+		})
+	}
+	return result
+}
+
+func compactWeatherWarningTitle(value string) (string, bool) {
 	title := strings.TrimSpace(value)
+	if index := strings.LastIndex(title, "解除"); index >= 0 {
+		summary := strings.TrimSpace(title[index+len("解除"):])
+		replacer := strings.NewReplacer("红色", "", "橙色", "", "黄色", "", "蓝色", "", "紫色", "", "黑色", "")
+		summary = strings.TrimSpace(replacer.Replace(summary))
+		if summary != "" {
+			return summary + "已解除", true
+		}
+		return "预警已解除", true
+	}
 	if index := strings.LastIndex(title, "发布"); index >= 0 {
 		if summary := strings.TrimSpace(title[index+len("发布"):]); summary != "" {
-			return summary
+			return summary, false
 		}
 	}
-	return title
+	return title, false
+}
+
+func weatherWarningSummary(warnings []model.WeatherWarning) (string, string) {
+	bestSummary := ""
+	bestTone := "active"
+	bestRank := -1
+	activeCount := 0
+	releasedSummary := ""
+	for _, warning := range warnings {
+		summary, released := compactWeatherWarningTitle(warning.Title)
+		if summary == "" {
+			continue
+		}
+		if released {
+			if releasedSummary == "" {
+				releasedSummary = summary
+			}
+			continue
+		}
+		activeCount++
+		rank := weatherWarningRank(warning)
+		if rank > bestRank {
+			bestRank = rank
+			bestSummary = summary
+			bestTone = weatherWarningTone(warning)
+		}
+	}
+	if bestSummary != "" {
+		if activeCount > 1 {
+			bestSummary += " +" + strconv.Itoa(activeCount-1)
+		}
+		return bestSummary, bestTone
+	}
+	return releasedSummary, "active"
+}
+
+func weatherWarningRank(warning model.WeatherWarning) int {
+	color := strings.ToLower(strings.TrimSpace(warning.Color))
+	severity := strings.ToLower(strings.TrimSpace(warning.Severity))
+	rank := 1
+	switch color {
+	case "red", "purple", "black":
+		rank = 4
+	case "orange":
+		rank = 3
+	case "yellow":
+		rank = 2
+	}
+	switch severity {
+	case "extreme":
+		return 4
+	case "severe":
+		if rank < 3 {
+			return 3
+		}
+	case "moderate":
+		if rank < 2 {
+			return 2
+		}
+	}
+	return rank
 }
 
 func nonEmptyStrings(values ...string) []string {
@@ -708,21 +813,18 @@ func fanActivity(module model.Module[model.FanStatus], now time.Time) (Activity,
 	if warning {
 		tone = "warn"
 	}
-	details := make([]string, 0, 3)
+	details := make([]string, 0, 2)
 	if fan.Percentage != nil {
 		details = append(details, strconv.Itoa(int(math.Round(*fan.Percentage)))+"%")
 	}
 	if fan.PresetMode != "" {
 		details = append(details, fan.PresetMode)
 	}
-	if fan.Oscillating != nil && *fan.Oscillating {
-		details = append(details, "摇头")
-	}
-	value := formatElapsed(elapsed)
+	value := strings.Join(details, " · ")
 	if value == "" {
 		value = "开启"
 	}
-	return Activity{ID: "fan", Icon: "fan", Tone: tone, Title: title, Value: value, Detail: strings.Join(details, " · ")}, true
+	return Activity{ID: "fan", Icon: "fan", Tone: tone, Title: title, Value: value}, true
 }
 
 func effectiveNow(snapshot model.Snapshot, supplied time.Time) time.Time {

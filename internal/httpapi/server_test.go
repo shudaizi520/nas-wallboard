@@ -260,6 +260,19 @@ func TestEmbeddedBrandIconIsServedAsSVGAndImmutable(t *testing.T) {
 	}
 }
 
+func TestEmbeddedManagementAssetsAreServedWithSecurityHeaders(t *testing.T) {
+	handler := apiTestHandler(t, apiTestStore(), wallboardweb.FS, "version")
+	for _, asset := range []string{"/manage-ui.js", "/manage-desktop.css", "/manage-integrations.css"} {
+		recorder := request(t, handler, http.MethodGet, asset)
+		if recorder.Code != http.StatusOK || recorder.Header().Get("Cache-Control") != "no-cache" {
+			t.Errorf("%s = %d %#v", asset, recorder.Code, recorder.Header())
+		}
+		if recorder.Header().Get("X-Content-Type-Options") != "nosniff" || recorder.Header().Get("Content-Security-Policy") == "" {
+			t.Errorf("%s missing security headers: %#v", asset, recorder.Header())
+		}
+	}
+}
+
 func TestEveryRouteHasSecurityHeaders(t *testing.T) {
 	handler := apiTestHandler(t, apiTestStore(), apiTestAssets(), "version")
 	for _, path := range []string{"/", "/styles.css", "/api/status", "/api/dashboard", "/healthz", "/readyz", "/missing"} {

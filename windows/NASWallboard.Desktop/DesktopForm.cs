@@ -21,6 +21,7 @@ internal sealed class DesktopForm : Form
     private bool allowExit;
     private bool browserReady;
     private bool showingFallback;
+    private bool initialPlacementComplete;
     private Size? lastCssSize;
 
     internal AppSettings Settings => settings;
@@ -74,6 +75,7 @@ internal sealed class DesktopForm : Form
             ? "attached to desktop host"
             : "desktop host attachment failed; continuing as a normal window");
         PlaceInitialWindow();
+        initialPlacementComplete = true;
         tray = new TrayMenu(this);
         StartupLog.Write("tray icon created");
         ApplyLockedStyle();
@@ -147,8 +149,8 @@ internal sealed class DesktopForm : Form
 
     internal void ToggleLocked()
     {
-        FinishDragging(lockAfterFinish: false);
-        SetLocked(!settings.Locked);
+        FinishDragging();
+        SetLocked(MoveModeTransition.NextLocked(settings.Locked, MoveModeAction.Toggle));
     }
 
     private void SetLocked(bool locked)
@@ -274,7 +276,8 @@ internal sealed class DesktopForm : Form
         var leftButtonDown = NativeMethods.IsLeftMouseButtonDown();
         if (!leftButtonDown)
         {
-            FinishDragging(lockAfterFinish: true);
+            FinishDragging();
+            SetLocked(MoveModeTransition.NextLocked(settings.Locked, MoveModeAction.DragCompleted));
             return;
         }
         if (!NativeMethods.TryGetCursorPosition(out var pointer)) return;
@@ -287,13 +290,12 @@ internal sealed class DesktopForm : Form
             NativeMethods.TryMoveWindowToScreenPosition(Handle, location);
     }
 
-    private void FinishDragging(bool lockAfterFinish)
+    private void FinishDragging()
     {
         if (!dragSession.Active) return;
         ClampToVisibleArea();
         if (!dragSession.Stop()) return;
         PersistPosition();
-        if (lockAfterFinish) SetLocked(true);
     }
 
     private void UpdateDragMonitoring()
@@ -322,7 +324,11 @@ internal sealed class DesktopForm : Form
         else
         {
             var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
-            var location = new PixelPoint(area.Right - Width - 56, area.Top + 56);
+            var placement = WindowPlacement.TopRight(
+                new ScreenRect(area.X, area.Y, area.Width, area.Height),
+                Width,
+                Height);
+            var location = new PixelPoint(placement.X, placement.Y);
             if (!NativeMethods.TryMoveWindowToScreenPosition(Handle, location))
                 Location = new Point(location.X, location.Y);
         }
@@ -334,8 +340,10 @@ internal sealed class DesktopForm : Form
         lastCssSize = new Size(width, height);
         var scale = DeviceDpi / 96d;
         var pixels = CssPixelSize.ToRawPixels(width, height, scale);
-        ClientSize = new Size(pixels.Width, pixels.Height);
-        ClampToVisibleArea();
+        var current = CurrentBounds();
+        var resized = WindowPlacement.Resize(current, pixels.Width, pixels.Height, WorkAreas());
+        if (!NativeMethods.TrySetWindowBoundsFromScreen(Handle, resized))
+            Bounds = new Rectangle(resized.X, resized.Y, resized.Width, resized.Height);
         PersistPosition();
     }
 
@@ -348,16 +356,23 @@ internal sealed class DesktopForm : Form
 
     private void ClampToVisibleArea()
     {
-        var workAreas = Screen.AllScreens
-            .Select(screen => new ScreenRect(screen.WorkingArea.X, screen.WorkingArea.Y, screen.WorkingArea.Width, screen.WorkingArea.Height))
-            .ToArray();
-        var current = NativeMethods.TryGetWindowBounds(Handle, out var bounds)
-            ? new ScreenRect(bounds.X, bounds.Y, bounds.Width, bounds.Height)
-            : new ScreenRect(Left, Top, Width, Height);
-        var clamped = WindowPlacement.Clamp(current, workAreas);
+        var clamped = WindowPlacement.Clamp(CurrentBounds(), WorkAreas());
         if (!NativeMethods.TrySetWindowBoundsFromScreen(Handle, clamped))
             Bounds = new Rectangle(clamped.X, clamped.Y, clamped.Width, clamped.Height);
     }
+
+    private ScreenRect CurrentBounds() =>
+        NativeMethods.TryGetWindowBounds(Handle, out var bounds)
+            ? new ScreenRect(bounds.X, bounds.Y, bounds.Width, bounds.Height)
+            : new ScreenRect(Left, Top, Width, Height);
+
+    private static ScreenRect[] WorkAreas() => Screen.AllScreens
+        .Select(screen => new ScreenRect(
+            screen.WorkingArea.X,
+            screen.WorkingArea.Y,
+            screen.WorkingArea.Width,
+            screen.WorkingArea.Height))
+        .ToArray();
 
     private void PersistPosition()
     {
@@ -365,7 +380,7 @@ internal sealed class DesktopForm : Form
         var location = NativeMethods.TryGetWindowBounds(Handle, out var bounds)
             ? new PixelPoint(bounds.X, bounds.Y)
             : new PixelPoint(Left, Top);
-        if (location.X == settings.X && location.Y == settings.Y) return;
+        if (!WindowPlacement.ShouldPersist(initialPlacementComplete, location, new PixelPoint(settings.X, settings.Y))) return;
         settings = settings with { X = location.X, Y = location.Y };
         SaveSettings();
     }

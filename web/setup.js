@@ -6,6 +6,7 @@ export function initialSetupState(status = {}) {
     compatibility: false,
     migration: Boolean(status.migration),
     candidate: {url: '', username: '', apiKey: '', insecureSkipVerify: false},
+    administratorUsername: 'admin',
     password: '',
     passwordConfirmation: '',
     probe: null,
@@ -22,6 +23,8 @@ export function reduceSetup(state, action) {
       return {...state, candidate: {...state.candidate, [action.name]: action.value}, errors: {...state.errors, [action.name]: ''}};
     case 'password':
       return {...state, [action.name]: action.value, errors: {...state.errors, [action.name]: ''}};
+    case 'administratorUsername':
+      return {...state, administratorUsername: action.value, errors: {...state.errors, administratorUsername: ''}};
     case 'next':
       return {...state, step: Math.min(LAST_STEP, state.step + 1), errors: {}};
     case 'back':
@@ -67,6 +70,7 @@ export function validateCurrentStep(state) {
   }
   if (state.step === 2 && !state.probe?.ok) errors.general = '请先完成连接测试';
   if (state.step === 3) {
+    if (!/^[\p{L}\p{N}._-]{3,32}$/u.test(state.administratorUsername.trim())) errors.administratorUsername = '用户名只能包含中英文字母、数字、点、下划线和连字符';
     if ([...state.password].length < 12) errors.password = '密码至少需要 12 个字符';
     if (state.password !== state.passwordConfirmation) errors.passwordConfirmation = '两次输入的密码不一致';
   }
@@ -87,6 +91,7 @@ export function buildCompletionPayload(state) {
   const candidate = state.migration ? {} : buildProbePayload(state);
   return {
     ...candidate,
+    administrator_username: state.administratorUsername.trim(),
     password: state.password,
     password_confirmation: state.passwordConfirmation,
     use_imported: state.migration,
@@ -106,6 +111,7 @@ export function redactSecretsAfterSubmit(state) {
 function messageForServerError(code) {
   const messages = {
     invalid_candidate: 'TrueNAS 连接信息不完整',
+    invalid_username: '管理员用户名格式不正确',
     password_confirmation: '两次输入的密码不一致',
     password_policy: '管理员密码至少需要 12 个字符',
     probe_failed: '无法连接 TrueNAS，请检查地址、证书和 API Key',
@@ -169,6 +175,7 @@ function setupApplication(root, browser) {
     root.querySelector('#review-address').textContent = state.migration ? '使用已导入的 TrueNAS 连接' : normalizeTrueNASURL(state.candidate.url);
     root.querySelector('#review-version').textContent = state.probe?.version || '—';
     root.querySelector('#review-resources').textContent = `${state.probe?.pools?.length ?? 0} 个存储池 · ${state.probe?.disks?.length ?? 0} 块硬盘`;
+    root.querySelector('#review-administrator').textContent = state.administratorUsername.trim();
   }
 
   function render() {
@@ -198,6 +205,7 @@ function setupApplication(root, browser) {
     root.querySelector(`#${field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`).addEventListener('input', (event) => dispatch({type: 'field', name: field, value: event.target.value}));
   }
   root.querySelector('#insecure-skip-verify').addEventListener('change', (event) => dispatch({type: 'field', name: 'insecureSkipVerify', value: event.target.checked}));
+  root.querySelector('#administrator-username').addEventListener('input', (event) => dispatch({type: 'administratorUsername', value: event.target.value}));
   root.querySelector('#password').addEventListener('input', (event) => dispatch({type: 'password', name: 'password', value: event.target.value}));
   root.querySelector('#password-confirmation').addEventListener('input', (event) => dispatch({type: 'password', name: 'passwordConfirmation', value: event.target.value}));
 

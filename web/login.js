@@ -1,9 +1,11 @@
 export function initialLoginState() {
-  return {password: '', pending: false, error: ''};
+  return {username: '', password: '', pending: false, error: ''};
 }
 
 export function reduceLogin(state, action) {
   switch (action.type) {
+    case 'username':
+      return {...state, username: action.value, error: ''};
     case 'password':
       return {...state, password: action.value, error: ''};
     case 'submit':
@@ -16,20 +18,28 @@ export function reduceLogin(state, action) {
 }
 
 export function validateLogin(state) {
-  return state.password ? {} : {password: '请输入管理员密码'};
+  const errors = {};
+  if (!state.username.trim()) errors.username = '请输入管理员用户名';
+  if (!state.password) errors.password = '请输入管理员密码';
+  return errors;
 }
 
 export function buildLoginPayload(state) {
-  return {password: state.password};
+  return {username: state.username.trim(), password: state.password};
 }
 
 function loginApplication(root, browser) {
   let state = initialLoginState();
   const form = root.querySelector('#login-form');
+  const username = root.querySelector('#login-username');
   const password = root.querySelector('#login-password');
   const submit = root.querySelector('#login-submit');
   const status = root.querySelector('#login-status');
 
+  username.addEventListener('input', (event) => {
+    state = reduceLogin(state, {type: 'username', value: event.target.value});
+    status.textContent = '';
+  });
   password.addEventListener('input', (event) => {
     state = reduceLogin(state, {type: 'password', value: event.target.value});
     status.textContent = '';
@@ -37,9 +47,10 @@ function loginApplication(root, browser) {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const errors = validateLogin(state);
-    if (errors.password) {
-      status.textContent = errors.password;
-      password.focus();
+    const firstError = errors.username || errors.password;
+    if (firstError) {
+      status.textContent = firstError;
+      (errors.username ? username : password).focus();
       return;
     }
     const payload = buildLoginPayload(state);
@@ -50,7 +61,7 @@ function loginApplication(root, browser) {
       const response = await fetch('/api/auth/login', {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error(response.status === 429 ? '尝试次数过多，请稍后再试' : '密码不正确');
+      if (!response.ok) throw new Error(response.status === 429 ? '尝试次数过多，请稍后再试' : '用户名或密码不正确');
       browser.location.replace('/manage');
     } catch (error) {
       state = reduceLogin(state, {type: 'failure', message: error.message});

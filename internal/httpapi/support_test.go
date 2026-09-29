@@ -62,7 +62,7 @@ func TestReauthenticationBackupPasswordChangeAndFactoryReset(t *testing.T) {
 	if change.Code != http.StatusNoContent {
 		t.Fatalf("password change = %d %q", change.Code, change.Body.String())
 	}
-	newLogin := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/auth/login", bytes.NewBufferString(`{"password":"a different secure password"}`), map[string]string{"Content-Type": "application/json", "Origin": "http://nas.local"})
+	newLogin := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/auth/login", bytes.NewBufferString(`{"username":"admin","password":"a different secure password"}`), map[string]string{"Content-Type": "application/json", "Origin": "http://nas.local"})
 	if newLogin.Code != http.StatusOK {
 		t.Fatalf("new password login = %d %q", newLogin.Code, newLogin.Body.String())
 	}

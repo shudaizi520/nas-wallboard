@@ -103,13 +103,17 @@ func (c *Client) read(ctx context.Context) (model.DownloadStatus, int, error) {
 	}
 	result := model.DownloadStatus{Items: []model.DownloadItem{}}
 	for _, item := range raw {
-		if item.DLSpeed <= 0 || item.Progress >= 1 {
+		if item.Progress >= 1 {
 			continue
 		}
+		downloadBps := item.DLSpeed
+		if downloadBps < 0 {
+			downloadBps = 0
+		}
 		result.ActiveCount++
-		result.DownloadBps += item.DLSpeed
+		result.DownloadBps += downloadBps
 		result.Items = append(result.Items, model.DownloadItem{
-			Name: strings.TrimSpace(item.Name), ProgressPercent: item.Progress * 100, DownloadBps: item.DLSpeed,
+			Name: strings.TrimSpace(item.Name), ProgressPercent: item.Progress * 100, DownloadBps: downloadBps,
 		})
 	}
 	return result, response.StatusCode, nil

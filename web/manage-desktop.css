@@ -1,0 +1,75 @@
+.width-control { display: flex; width: min(560px, 100%); min-width: 0; align-items: center; gap: 16px; }
+.width-control input { width: 100%; }
+.width-control output { min-width: 55px; color: var(--accent-strong); text-align: right; font-variant-numeric: tabular-nums; }
+
+.desktop-workspace {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);
+  align-items: start;
+  gap: 30px;
+}
+.layout-items { display: grid; min-width: 0; }
+.layout-item { min-width: 0; border-bottom: 1px solid var(--line); background: transparent; }
+.layout-item:last-child { border-bottom: 0; }
+.layout-item:hover { background: color-mix(in srgb, var(--control-hover) 54%, transparent); }
+.layout-item:focus { outline: 2px solid var(--accent-strong); outline-offset: -2px; }
+.layout-item.dragging { opacity: 0.5; }
+.layout-item-main { display: grid; min-height: 52px; grid-template-columns: 20px 18px minmax(0, 1fr) 66px; align-items: center; gap: 8px; padding: 6px 8px; }
+.drag-handle { color: var(--quiet); cursor: grab; letter-spacing: -3px; }
+.layout-item-copy { min-width: 0; }
+.layout-item-copy strong { color: var(--text); font-size: 13px; font-weight: 560; }
+.moves { display: grid; grid-template-columns: repeat(2, 30px); justify-content: end; gap: 2px; }
+.moves button { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 5px; color: var(--muted); background: transparent; }
+.moves button:hover { color: var(--text); background: var(--control-hover); }
+.widget-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; padding: 2px 8px 12px 54px; }
+.layout-item[data-controls="single"] .widget-controls { grid-template-columns: minmax(180px, 300px); }
+.widget-field { display: grid; min-width: 0; gap: 5px; }
+.widget-field span { color: var(--muted); font-size: 11px; }
+.widget-field input, .widget-field select { min-height: 34px; font-size: 13px; }
+
+.widget-library { display: grid; gap: 16px; }
+.widget-library-group { display: grid; gap: 7px; }
+.widget-library-group h3 { margin: 0; color: var(--muted); font-size: 12px; font-weight: 540; }
+.widget-library-items { display: flex; flex-wrap: wrap; gap: 7px; }
+.widget-library-item { min-height: var(--button-height); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); color: #dbe2e1; background: transparent; }
+.widget-library-item:hover { border-color: color-mix(in srgb, var(--accent) 48%, var(--line-strong)); background: var(--control-hover); }
+.widget-library-empty { margin: 0; color: var(--quiet); font-size: 12px; }
+
+.preview-card { position: sticky; top: 18px; min-width: 0; }
+.preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.preview-heading span { color: var(--text); font-size: 13px; font-weight: 550; }
+.preview-heading a { font-size: 12px; }
+.preview-stage { position: relative; min-height: 250px; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: #080c16; transition: height 120ms ease; }
+.preview-stage iframe { position: absolute; top: 18px; left: 50%; border: 0; background: transparent; transform-origin: top center; }
+
+.layout-actions {
+  position: fixed;
+  z-index: 10;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 10px max(24px, calc((100vw - var(--content-width)) / 2));
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--page) 94%, transparent);
+  backdrop-filter: blur(14px);
+}
+#status { margin-right: auto; color: var(--good); font-size: 12px; }
+#save { min-height: var(--button-height); padding: 0 13px; border: 0; border-radius: var(--radius); color: #071411; background: var(--accent); font: inherit; font-weight: 600; }
+
+@media (max-width: 900px) {
+  .desktop-workspace { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .preview-card { position: static; }
+}
+
+@media (max-width: 680px) {
+  .layout-item-main { grid-template-columns: 18px 18px minmax(0, 1fr) 66px; padding-inline: 0; }
+  .widget-controls, .layout-item[data-controls="single"] .widget-controls { grid-template-columns: minmax(0, 1fr); padding-left: 44px; padding-right: 0; }
+  .layout-actions { padding-inline: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-stage { transition: none; }
+}

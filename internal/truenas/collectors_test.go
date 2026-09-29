@@ -90,14 +90,26 @@ func TestCollectRealtimeNormalizesMemoryAndStartsRatesAtZero(t *testing.T) {
 		t.Fatalf("rates = %v/%v, want 1000000/500000", got.NetworkRxBps, got.NetworkTxBps)
 	}
 	encoded, _ := json.Marshal(got)
-	if !strings.Contains(string(encoded), `"cpu_temperature_celsius":56`) {
-		t.Fatalf("CPU temperature missing from realtime model: %s", encoded)
+	if !strings.Contains(string(encoded), `"cpu_temperature_celsius":47`) {
+		t.Fatalf("CPU temperature should use the hottest core instead of TrueNAS's broken aggregate: %s", encoded)
 	}
 	if !reflect.DeepEqual(caller.calls, []string{"reporting.netdata_graphs", "system.info", "reporting.netdata_get_data"}) {
 		t.Fatalf("calls = %#v", caller.calls)
 	}
 	if len(caller.params[2]) != 2 {
 		t.Fatalf("netdata params = %#v, want graphs and time query", caller.params[2])
+	}
+}
+
+func TestLatestCPUTemperatureFallsBackToAggregateWithoutCoreDimensions(t *testing.T) {
+	graph := netdataWire{
+		Legend: []string{"time", "cpu"},
+		Data:   [][]json.RawMessage{{json.RawMessage(`200`), json.RawMessage(`43`)}},
+	}
+
+	got, found := latestCPUTemperature(graph)
+	if !found || got != 43 {
+		t.Fatalf("latestCPUTemperature() = %v, %t; want 43, true", got, found)
 	}
 }
 

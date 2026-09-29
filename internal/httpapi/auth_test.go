@@ -54,7 +54,7 @@ func newProtectedFixtureWithIntegrations(t *testing.T, configured bool, probe Se
 		t.Fatal(err)
 	}
 	if configured {
-		if err := authManager.SetInitialPassword("correct horse battery staple"); err != nil {
+		if err := authManager.SetInitialCredentials("admin", "correct horse battery staple"); err != nil {
 			t.Fatal(err)
 		}
 		if err := publicState.Update(func(value *persist.State) error {
@@ -146,6 +146,110 @@ func TestLoginSessionCSRFAndLogout(t *testing.T) {
 	}
 }
 
+func TestLoginRequiresUsernameAndReturnsAuthenticatedIdentity(t *testing.T) {
+	fixture := newProtectedFixture(t, true, nil)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "missing username", body: `{"password":"correct horse battery staple"}`},
+		{name: "missing password", body: `{"username":"admin"}`},
+		{name: "wrong username", body: `{"username":"somebody","password":"correct horse battery staple"}`},
+		{name: "wrong password", body: `{"username":"admin","password":"wrong password value"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/auth/login", bytes.NewBufferString(tt.body), map[string]string{
+				"Content-Type": "application/json", "Origin": "http://nas.local",
+			})
+			if response.Code != http.StatusUnauthorized || strings.TrimSpace(response.Body.String()) != `{"error":"invalid_credentials"}` {
+				t.Fatalf("response = %d %q", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	response := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/auth/login", bytes.NewBufferString(`{"username":"ADMIN","password":"correct horse battery staple"}`), map[string]string{
+		"Content-Type": "application/json", "Origin": "http://nas.local",
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("login = %d %q", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "password") {
+		t.Fatalf("login response contains password data: %q", response.Body.String())
+	}
+	cookie := response.Result().Cookies()[0]
+	session := protectedRequest(t, fixture.handler, http.MethodGet, "http://nas.local/api/auth/session", nil, nil, cookie)
+	if session.Code != http.StatusOK || !strings.Contains(session.Body.String(), `"username":"admin"`) || strings.Contains(session.Body.String(), "password") {
+		t.Fatalf("session = %d %q", session.Code, session.Body.String())
+	}
+}
+
+func TestUsernameChangeRequiresManagementPolicyAndInvalidatesEverySession(t *testing.T) {
+	fixture := newProtectedFixture(t, true, nil)
+	firstCookie, firstCSRF := loginForTest(t, fixture.handler)
+	secondCookie, _ := loginForTest(t, fixture.handler)
+	headers := map[string]string{
+		"Content-Type": "application/json", "Origin": "http://nas.local", "X-CSRF-Token": firstCSRF,
+	}
+	payload := `{"current_password":"correct horse battery staple","username":"Owner"}`
+
+	if got := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/manage/username", bytes.NewBufferString(payload), headers).Code; got != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d", got)
+	}
+	for _, tt := range []struct {
+		name    string
+		headers map[string]string
+	}{
+		{name: "missing origin", headers: map[string]string{"Content-Type": "application/json", "X-CSRF-Token": firstCSRF}},
+		{name: "missing csrf", headers: map[string]string{"Content-Type": "application/json", "Origin": "http://nas.local"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			response := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/manage/username", bytes.NewBufferString(payload), tt.headers, firstCookie)
+			if response.Code != http.StatusForbidden {
+				t.Fatalf("status = %d %q", response.Code, response.Body.String())
+			}
+		})
+	}
+	untrusted := httptest.NewRequest(http.MethodPost, "http://nas.local/api/manage/username", bytes.NewBufferString(payload))
+	untrusted.RemoteAddr = "203.0.113.10:1234"
+	untrusted.Header.Set("Content-Type", "application/json")
+	untrusted.Header.Set("Origin", "http://nas.local")
+	untrusted.Header.Set("X-CSRF-Token", firstCSRF)
+	untrusted.AddCookie(firstCookie)
+	untrustedResponse := httptest.NewRecorder()
+	fixture.handler.ServeHTTP(untrustedResponse, untrusted)
+	if untrustedResponse.Code != http.StatusForbidden {
+		t.Fatalf("untrusted status = %d", untrustedResponse.Code)
+	}
+
+	wrongPassword := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/manage/username", bytes.NewBufferString(`{"current_password":"wrong password value","username":"Owner"}`), headers, firstCookie)
+	if wrongPassword.Code != http.StatusUnauthorized || fixture.auth.Username() != "admin" {
+		t.Fatalf("wrong password = %d %q, username %q", wrongPassword.Code, wrongPassword.Body.String(), fixture.auth.Username())
+	}
+	invalid := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/manage/username", bytes.NewBufferString(`{"current_password":"correct horse battery staple","username":"bad/name"}`), headers, firstCookie)
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "invalid_username") {
+		t.Fatalf("invalid username = %d %q", invalid.Code, invalid.Body.String())
+	}
+
+	changed := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/manage/username", bytes.NewBufferString(payload), headers, firstCookie)
+	if changed.Code != http.StatusOK || !strings.Contains(changed.Body.String(), `"username":"Owner"`) {
+		t.Fatalf("change = %d %q", changed.Code, changed.Body.String())
+	}
+	for index, cookie := range []*http.Cookie{firstCookie, secondCookie} {
+		if got := protectedRequest(t, fixture.handler, http.MethodGet, "http://nas.local/api/auth/session", nil, nil, cookie).Code; got != http.StatusUnauthorized {
+			t.Fatalf("session %d survived with status %d", index, got)
+		}
+	}
+	oldLogin := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/auth/login", bytes.NewBufferString(`{"username":"admin","password":"correct horse battery staple"}`), map[string]string{"Content-Type": "application/json", "Origin": "http://nas.local"})
+	if oldLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("old username login = %d %q", oldLogin.Code, oldLogin.Body.String())
+	}
+	newLogin := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/auth/login", bytes.NewBufferString(`{"username":"owner","password":"correct horse battery staple"}`), map[string]string{"Content-Type": "application/json", "Origin": "http://nas.local"})
+	if newLogin.Code != http.StatusOK {
+		t.Fatalf("new username login = %d %q", newLogin.Code, newLogin.Body.String())
+	}
+}
+
 func TestCSRFOriginHostAndLegacyHeaderDoNotBypassPolicy(t *testing.T) {
 	fixture := newProtectedFixture(t, true, nil)
 	cookie, csrf := loginForTest(t, fixture.handler)
@@ -175,7 +279,7 @@ func TestCSRFOriginHostAndLegacyHeaderDoNotBypassPolicy(t *testing.T) {
 func TestLoginRateLimitAndCookieSecurity(t *testing.T) {
 	fixture := newProtectedFixture(t, true, nil)
 	for attempt := 1; attempt <= 6; attempt++ {
-		response := protectedRequest(t, fixture.handler, http.MethodPost, "https://nas.local/api/auth/login", bytes.NewBufferString(`{"password":"bad password value"}`), map[string]string{
+		response := protectedRequest(t, fixture.handler, http.MethodPost, "https://nas.local/api/auth/login", bytes.NewBufferString(`{"username":"admin","password":"bad password value"}`), map[string]string{
 			"Content-Type": "application/json", "Origin": "https://nas.local",
 		})
 		want := http.StatusUnauthorized
@@ -190,7 +294,7 @@ func TestLoginRateLimitAndCookieSecurity(t *testing.T) {
 		}
 	}
 
-	otherIP := httptest.NewRequest(http.MethodPost, "https://nas.local/api/auth/login", bytes.NewBufferString(`{"password":"correct horse battery staple"}`))
+	otherIP := httptest.NewRequest(http.MethodPost, "https://nas.local/api/auth/login", bytes.NewBufferString(`{"username":"admin","password":"correct horse battery staple"}`))
 	otherIP.RemoteAddr = "10.0.0.99:1234"
 	otherIP.Header.Set("Content-Type", "application/json")
 	otherIP.Header.Set("Origin", "https://nas.local")
@@ -207,7 +311,7 @@ func TestLoginRateLimitAndCookieSecurity(t *testing.T) {
 
 func loginForTest(t *testing.T, handler http.Handler) (*http.Cookie, string) {
 	t.Helper()
-	response := protectedRequest(t, handler, http.MethodPost, "http://nas.local/api/auth/login", bytes.NewBufferString(`{"password":"correct horse battery staple"}`), map[string]string{
+	response := protectedRequest(t, handler, http.MethodPost, "http://nas.local/api/auth/login", bytes.NewBufferString(`{"username":"admin","password":"correct horse battery staple"}`), map[string]string{
 		"Content-Type": "application/json", "Origin": "http://nas.local",
 	})
 	if response.Code != http.StatusOK {

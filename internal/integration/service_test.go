@@ -187,3 +187,21 @@ func TestServiceCatalogMarksOnlyMatchingDiscoveryHints(t *testing.T) {
 		t.Fatalf("catalog = %#v", catalog)
 	}
 }
+
+func TestServiceCreatePersistsIntegrationDefaultsAtomically(t *testing.T) {
+	service, store, _ := newServiceFixture(t, testServiceDefinition(successfulProbe), time.Second)
+	service.initialize = func(state *persist.State, instance persist.Integration) error {
+		state.Widgets = append(state.Widgets, persist.Widget{
+			ID: "plex-1", DefinitionID: "plex", IntegrationID: instance.ID, Enabled: true, Order: len(state.Widgets),
+		})
+		return nil
+	}
+	created, _, err := service.Create(context.Background(), Candidate{Type: "plex", Config: Config{"url": "http://plex.local"}, Secrets: Secrets{"token": []byte("secret")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := store.Snapshot()
+	if len(state.Integrations) != 1 || len(state.Widgets) != 1 || state.Widgets[0].IntegrationID != created.ID {
+		t.Fatalf("state = %#v", state)
+	}
+}

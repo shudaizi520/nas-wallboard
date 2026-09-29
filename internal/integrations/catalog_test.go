@@ -2,7 +2,9 @@ package integrations
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"example.com/nas-wallboard/internal/integration"
 )
@@ -74,6 +76,106 @@ func TestBuiltInCatalogDeclaresExpectedSecretsAndCapabilities(t *testing.T) {
 	for _, required := range []string{"memory", "pool_capacity", "smart", "replication", "app_exceptions"} {
 		if !containsString(capabilityIDs, required) {
 			t.Errorf("TrueNAS missing capability %q: %#v", required, capabilityIDs)
+		}
+	}
+}
+
+func TestHomeAssistantCatalogOffersOptionalNASPowerSensorAtFifteenSeconds(t *testing.T) {
+	registry, err := BuiltInRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, _ := registry.Definition("home_assistant")
+	if definition.Metadata().MinimumRefresh != 15*time.Second {
+		t.Fatalf("minimum refresh = %v", definition.Metadata().MinimumRefresh)
+	}
+	found := false
+	for _, field := range definition.Fields() {
+		if field.Key == "power_entity_id" {
+			found = true
+			if field.Required || field.Kind != integration.FieldEntityID {
+				t.Fatalf("power field = %#v", field)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("power_entity_id field missing")
+	}
+	if err := definition.Validate(integration.Config{
+		"url": "http://homeassistant.local:8123", "entity_id": "fan.office",
+	}); err != nil {
+		t.Fatalf("optional power field rejected: %v", err)
+	}
+}
+
+func TestQWeatherCatalogPollsAtFiveMinuteAlertCadence(t *testing.T) {
+	registry, err := BuiltInRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, _ := registry.Definition("qweather")
+	if definition.Metadata().MinimumRefresh != 5*time.Minute {
+		t.Fatalf("minimum refresh = %v, want 5m", definition.Metadata().MinimumRefresh)
+	}
+}
+
+func TestCatalogKeepsAdvancedFieldsOutOfTheCommonSetupPath(t *testing.T) {
+	registry, err := BuiltInRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"truenas", "qweather", "plex", "jellyfin", "qbittorrent", "uptime_kuma", "home_assistant", "scrutiny"} {
+		definition, _ := registry.Definition(id)
+		foundTimeout := false
+		for _, field := range definition.Fields() {
+			if field.Key == "call_timeout" {
+				foundTimeout = true
+				if !field.Advanced {
+					t.Errorf("%s call_timeout should be advanced", id)
+				}
+			}
+		}
+		if !foundTimeout {
+			t.Errorf("%s has no call_timeout field", id)
+		}
+	}
+	for _, public := range registry.Catalog() {
+		if public.ID != "plex" {
+			continue
+		}
+		for _, field := range public.Fields {
+			if field.Key == "call_timeout" && !field.Advanced {
+				t.Fatal("advanced flag was not exposed in the public catalog")
+			}
+		}
+	}
+}
+
+func TestCatalogHelpExplainsWhereNewUsersFindCredentialsAndEntities(t *testing.T) {
+	registry, err := BuiltInRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[string][]string{
+		"truenas":        {"api_key": {"Add API Key", "My API Keys"}},
+		"qweather":       {"api_key": {"控制台", "API Key"}},
+		"plex":           {"token": {"X-Plex-Token"}},
+		"jellyfin":       {"token": {"控制台", "API 密钥"}},
+		"uptime_kuma":    {"api_key": {"设置", "API Key"}},
+		"home_assistant": {"entity_id": {"设置", "实体"}, "token": {"个人资料", "长期访问令牌"}},
+	}
+	for id, fields := range want {
+		definition, _ := registry.Definition(id)
+		byKey := map[string]integration.Field{}
+		for _, field := range definition.Fields() {
+			byKey[field.Key] = field
+		}
+		for key, fragments := range fields {
+			for _, fragment := range fragments {
+				if !strings.Contains(byKey[key].Help, fragment) {
+					t.Errorf("%s.%s help %q does not contain %q", id, key, byKey[key].Help, fragment)
+				}
+			}
 		}
 	}
 }

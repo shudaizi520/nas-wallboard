@@ -19,8 +19,12 @@
       <p class="lead">登录后可以管理集成、桌面布局和应用设置。</p>
       <form id="login-form">
         <div class="field">
+          <label for="login-username">管理员用户名</label>
+          <input id="login-username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
+        </div>
+        <div class="field">
           <label for="login-password">管理员密码</label>
-          <input id="login-password" type="password" autocomplete="current-password" autofocus>
+          <input id="login-password" type="password" autocomplete="current-password">
         </div>
         <button id="login-submit" class="primary" type="submit">登录</button>
         <p id="login-status" role="alert" aria-live="polite"></p>

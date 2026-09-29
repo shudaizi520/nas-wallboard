@@ -1,5 +1,5 @@
 import { createPoller, visibleRefreshInterval } from './poller.js';
-import { renderDashboard, renderFetchError } from './view.js?v=13';
+import { renderDashboard, renderFetchError } from './view.js?v=18';
 
 const root = document;
 

@@ -3,12 +3,13 @@ package persist
 const CurrentSchemaVersion = 1
 
 type State struct {
-	SchemaVersion int             `json:"schema_version"`
-	SetupComplete bool            `json:"setup_complete"`
-	Server        ServerSettings  `json:"server"`
-	Integrations  []Integration   `json:"integrations"`
-	Widgets       []Widget        `json:"widgets"`
-	Legacy        *LegacyMetadata `json:"legacy,omitempty"`
+	SchemaVersion         int             `json:"schema_version"`
+	WidgetDefaultsVersion int             `json:"widget_defaults_version,omitempty"`
+	SetupComplete         bool            `json:"setup_complete"`
+	Server                ServerSettings  `json:"server"`
+	Integrations          []Integration   `json:"integrations"`
+	Widgets               []Widget        `json:"widgets"`
+	Legacy                *LegacyMetadata `json:"legacy,omitempty"`
 }
 
 type ServerSettings struct {
@@ -53,8 +54,9 @@ type LegacyMetadata struct {
 
 func newState() State {
 	return State{
-		SchemaVersion: CurrentSchemaVersion,
-		Integrations:  []Integration{},
-		Widgets:       []Widget{},
+		SchemaVersion:         CurrentSchemaVersion,
+		WidgetDefaultsVersion: 1,
+		Integrations:          []Integration{},
+		Widgets:               []Widget{},
 	}
 }

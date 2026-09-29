@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 type Module[T any] struct {
 	Data      T         `json:"data"`
@@ -25,6 +25,7 @@ type Snapshot struct {
 	Alerts        Module[[]AlertStatus]      `json:"alerts"`
 	Weather       Module[WeatherStatus]      `json:"weather"`
 	Home          Module[FanStatus]          `json:"home"`
+	HomePower     Module[PowerStatus]        `json:"home_power"`
 	Downloads     Module[DownloadStatus]     `json:"downloads"`
 	Plex          Module[MediaStatus]        `json:"plex"`
 	Jellyfin      Module[MediaStatus]        `json:"jellyfin"`
@@ -88,15 +89,24 @@ type AlertStatus struct {
 }
 
 type WeatherStatus struct {
-	Enabled       bool             `json:"enabled"`
-	Name          string           `json:"name"`
-	Temperature   float64          `json:"temperature"`
-	Condition     string           `json:"condition"`
-	ConditionCode string           `json:"condition_code"`
-	RainSummary   string           `json:"rain_summary,omitempty"`
-	Warnings      []WeatherWarning `json:"warnings"`
-	Source        string           `json:"source"`
-	Units         string           `json:"units"`
+	Enabled       bool              `json:"enabled"`
+	Name          string            `json:"name"`
+	Temperature   float64           `json:"temperature"`
+	Condition     string            `json:"condition"`
+	ConditionCode string            `json:"condition_code"`
+	RainSummary   string            `json:"rain_summary,omitempty"`
+	Warnings      []WeatherWarning  `json:"warnings"`
+	Forecasts     []WeatherForecast `json:"forecasts,omitempty"`
+	Source        string            `json:"source"`
+	Units         string            `json:"units"`
+}
+
+type WeatherForecast struct {
+	Condition                string  `json:"condition"`
+	ConditionCode            string  `json:"condition_code"`
+	TemperatureMin           float64 `json:"temperature_min"`
+	TemperatureMax           float64 `json:"temperature_max"`
+	PrecipitationProbability float64 `json:"precipitation_probability"`
 }
 
 type WeatherWarning struct {
@@ -140,6 +150,11 @@ type FanStatus struct {
 	RemindAfterSeconds int64      `json:"remind_after_seconds"`
 }
 
+type PowerStatus struct {
+	Available bool    `json:"available"`
+	Watts     float64 `json:"watts"`
+}
+
 type DownloadStatus struct {
 	ActiveCount int            `json:"active_count"`
 	DownloadBps int64          `json:"download_bps"`
@@ -157,10 +172,12 @@ type MediaStatus struct {
 }
 
 type MediaSession struct {
-	Title  string `json:"title"`
-	Device string `json:"device,omitempty"`
-	User   string `json:"user,omitempty"`
-	Paused bool   `json:"paused"`
+	Title          string `json:"title"`
+	Device         string `json:"device,omitempty"`
+	User           string `json:"user,omitempty"`
+	Paused         bool   `json:"paused"`
+	SessionID      string `json:"-"`
+	ProgressMillis int64  `json:"-"`
 }
 
 type MonitorStatus struct {

@@ -39,7 +39,7 @@ func DefaultDashboard(width int) (config.DashboardConfig, dashboard.Availability
 }
 
 func DefaultStaleAfter() state.StaleAfter {
-	return state.StaleAfter{Realtime: 15 * time.Second, Apps: time.Minute, Alerts: time.Minute, System: 2 * time.Minute, Pools: 2 * time.Minute, Disks: 2 * time.Minute, Weather: 30 * time.Minute, Home: time.Minute, Downloads: time.Minute, Plex: time.Minute, Jellyfin: time.Minute, Monitors: 2 * time.Minute, DiskHealth: 2 * time.Minute, Memory: 2 * time.Minute, Replication: 2 * time.Minute}
+	return state.StaleAfter{Realtime: 15 * time.Second, Apps: time.Minute, Alerts: time.Minute, System: 2 * time.Minute, Pools: 2 * time.Minute, Disks: 2 * time.Minute, Weather: 30 * time.Minute, Home: time.Minute, HomePower: 15 * time.Second, Downloads: time.Minute, Plex: time.Minute, Jellyfin: time.Minute, Monitors: 2 * time.Minute, DiskHealth: 2 * time.Minute, Memory: 2 * time.Minute, Replication: 2 * time.Minute}
 }
 
 type trueNASRuntime struct {
@@ -146,7 +146,7 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 			return nil, err
 		}
 		return job(id, metadata.MinimumRefresh, func(ctx context.Context) error {
-			value, err := client.Current(ctx)
+			value, err := client.Refresh(ctx)
 			options.Store.SetWeather(value, err)
 			return err
 		}), nil
@@ -155,7 +155,15 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 		if err != nil {
 			return nil, err
 		}
-		return job(id, metadata.MinimumRefresh, adaptiveMedia(client.Current, options.Store.SetPlex, metadata.MinimumRefresh)), nil
+		filter := plex.NewSessionFilter(time.Now)
+		current := func(ctx context.Context) (model.MediaStatus, error) {
+			status, readErr := client.Current(ctx)
+			if readErr != nil {
+				return status, readErr
+			}
+			return filter.Apply(status), nil
+		}
+		return job(id, metadata.MinimumRefresh, adaptiveMedia(current, options.Store.SetPlex, metadata.MinimumRefresh)), nil
 	case "jellyfin":
 		client, err := jellyfin.New(config.JellyfinConfig{URL: stringSetting(settings, "url", ""), Token: secretString(secrets, "token"), CallTimeout: config.Duration{Duration: timeout}}, httpClient)
 		if err != nil {
@@ -167,11 +175,7 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 		if err != nil {
 			return nil, err
 		}
-		return job(id, metadata.MinimumRefresh, func(ctx context.Context) error {
-			value, err := client.Current(ctx)
-			options.Store.SetDownloads(value, err)
-			return err
-		}), nil
+		return job(id, metadata.MinimumRefresh, adaptiveDownloads(client.Current, options.Store.SetDownloads, metadata.MinimumRefresh)), nil
 	case "uptime_kuma":
 		client, err := uptimekuma.New(config.UptimeKumaConfig{URL: stringSetting(settings, "url", ""), APIKey: secretString(secrets, "api_key"), CallTimeout: config.Duration{Duration: timeout}}, httpClient)
 		if err != nil {
@@ -183,14 +187,22 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 			return err
 		}), nil
 	case "home_assistant":
-		cfg := config.HomeAssistantConfig{Enabled: true, URL: stringSetting(settings, "url", ""), FanEntityID: stringSetting(settings, "entity_id", ""), FanName: stringSetting(settings, "name", "设备"), RemindAfter: config.Duration{Duration: durationSetting(settings, "remind_after", 2*time.Hour)}, CallTimeout: config.Duration{Duration: timeout}}
+		cfg := config.HomeAssistantConfig{Enabled: true, URL: stringSetting(settings, "url", ""), FanEntityID: stringSetting(settings, "entity_id", ""), PowerEntityID: stringSetting(settings, "power_entity_id", ""), FanName: stringSetting(settings, "name", "设备"), RemindAfter: config.Duration{Duration: durationSetting(settings, "remind_after", 2*time.Hour)}, CallTimeout: config.Duration{Duration: timeout}}
 		client := homeassistant.New(cfg, secretString(secrets, "token"), httpClient)
 		options.Store.SetHome(model.FanStatus{Enabled: true, Name: cfg.FanName, State: "unavailable", RemindAfterSeconds: int64(cfg.RemindAfter.Duration / time.Second)}, nil)
-		return job(id, metadata.MinimumRefresh, func(ctx context.Context) error {
+		jobs := []collector.Job{{Name: id + ":fan", Every: metadata.MinimumRefresh, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
 			value, err := client.CurrentFan(ctx)
 			options.Store.SetHome(value, err)
 			return err
-		}), nil
+		}}}
+		if cfg.PowerEntityID != "" {
+			jobs = append(jobs, collector.Job{Name: id + ":power", Every: metadata.MinimumRefresh, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
+				value, err := client.CurrentPower(ctx)
+				options.Store.SetHomePower(value, err)
+				return err
+			}})
+		}
+		return collector.NewRunner(jobs), nil
 	case "scrutiny":
 		client, err := scrutiny.New(config.ScrutinyConfig{Enabled: true, URL: stringSetting(settings, "url", ""), CallTimeout: config.Duration{Duration: timeout}}, httpClient)
 		if err != nil {
@@ -207,6 +219,35 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 }
 
 type mediaCurrent func(context.Context) (model.MediaStatus, error)
+
+type downloadCurrent func(context.Context) (model.DownloadStatus, error)
+
+func adaptiveDownloads(current downloadCurrent, set func(model.DownloadStatus, error), every time.Duration) func(context.Context) error {
+	idleTicks := max(1, int((time.Minute+every-1)/every))
+	remaining := 0
+	last := model.DownloadStatus{}
+	hasResult := false
+	return func(ctx context.Context) error {
+		if hasResult && last.ActiveCount == 0 && remaining > 0 {
+			remaining--
+			set(last, nil)
+			return nil
+		}
+		value, err := current(ctx)
+		set(value, err)
+		if err != nil {
+			remaining = 0
+			return err
+		}
+		last, hasResult = value, true
+		if value.ActiveCount == 0 {
+			remaining = idleTicks - 1
+		} else {
+			remaining = 0
+		}
+		return nil
+	}
+}
 
 func adaptiveMedia(current mediaCurrent, set func(model.MediaStatus, error), every time.Duration) func(context.Context) error {
 	idleTicks := max(1, int((time.Minute+every-1)/every))

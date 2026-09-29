@@ -158,12 +158,13 @@ type WeatherConfig struct {
 }
 
 type HomeAssistantConfig struct {
-	Enabled     bool     `yaml:"enabled"`
-	URL         string   `yaml:"url"`
-	FanEntityID string   `yaml:"fan_entity_id"`
-	FanName     string   `yaml:"fan_name"`
-	RemindAfter Duration `yaml:"remind_after"`
-	CallTimeout Duration `yaml:"call_timeout"`
+	Enabled       bool     `yaml:"enabled"`
+	URL           string   `yaml:"url"`
+	FanEntityID   string   `yaml:"fan_entity_id"`
+	PowerEntityID string   `yaml:"power_entity_id"`
+	FanName       string   `yaml:"fan_name"`
+	RemindAfter   Duration `yaml:"remind_after"`
+	CallTimeout   Duration `yaml:"call_timeout"`
 }
 
 type QBittorrentConfig struct {

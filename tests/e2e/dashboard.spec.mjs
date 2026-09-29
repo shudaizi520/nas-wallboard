@@ -11,7 +11,11 @@ let setupRequired = false;
 let setupMigration = false;
 let sessionValid = true;
 let lastSetupComplete = null;
+let administratorUsername = 'admin';
+let administratorPassword = 'correct horse battery staple';
 let integrationInstances = [];
+let integrationMutationRequests = 0;
+let overviewRequests = 0;
 let mockPlexVisible = true;
 const testCSRF = 'e2e-csrf-token';
 const widgetSources = [
@@ -45,8 +49,8 @@ const integrationCatalog = [{
   metadata: {name: 'Plex 媒体', description: '为每个播放终端分别显示当前播放会话。', icon: 'play', category: '媒体', required: false},
   fields: [
     {key: 'url', kind: 'url', label: '服务地址', help: '填写 Plex 服务的局域网地址。', required: true},
-    {key: 'call_timeout', kind: 'duration', label: '请求超时', help: '限制等待时间。', default: '5s'},
-    {key: 'token', kind: 'secret', label: '访问令牌', help: '填写只读令牌。', required: true},
+    {key: 'call_timeout', kind: 'duration', label: '请求超时', help: '限制等待时间。', default: '5s', advanced: true},
+    {key: 'token', kind: 'secret', label: '访问令牌', help: '登录 Plex Web 后复制 X-Plex-Token。', required: true},
   ],
 }];
 let managed = {
@@ -95,6 +99,8 @@ test.beforeAll(async () => {
       let raw = '';
       for await (const chunk of request) raw += chunk;
       lastSetupComplete = JSON.parse(raw);
+      administratorUsername = lastSetupComplete.administrator_username;
+      administratorPassword = lastSetupComplete.password;
       setupRequired = false;
       sessionValid = false;
       response.writeHead(201, {'content-type': 'application/json'});
@@ -103,21 +109,22 @@ test.beforeAll(async () => {
     }
     if (request.url.startsWith('/api/auth/session')) {
       response.writeHead(sessionValid ? 200 : 401, {'content-type': 'application/json', 'cache-control': 'no-store'});
-      response.end(JSON.stringify(sessionValid ? {authenticated: true, csrf: testCSRF} : {error: 'unauthorized'}));
+      response.end(JSON.stringify(sessionValid ? {authenticated: true, csrf: testCSRF, username: administratorUsername} : {error: 'unauthorized'}));
       return;
     }
     if (request.url.startsWith('/api/auth/login')) {
       let raw = '';
       for await (const chunk of request) raw += chunk;
       const input = JSON.parse(raw);
-      if (input.password !== 'correct horse battery staple') {
+      if (String(input.username ?? '').trim().toLocaleLowerCase() !== administratorUsername.toLocaleLowerCase()
+          || input.password !== administratorPassword) {
         response.writeHead(401, {'content-type': 'application/json'});
         response.end(JSON.stringify({error: 'invalid_credentials'}));
         return;
       }
       sessionValid = true;
       response.writeHead(200, {'content-type': 'application/json'});
-      response.end(JSON.stringify({authenticated: true, csrf: testCSRF}));
+      response.end(JSON.stringify({authenticated: true, csrf: testCSRF, username: administratorUsername}));
       return;
     }
     if (request.url.startsWith('/api/auth/logout')) {
@@ -127,6 +134,7 @@ test.beforeAll(async () => {
       return;
     }
     if (request.url.startsWith('/api/manage/overview')) {
+      overviewRequests += 1;
       response.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'});
       response.end(JSON.stringify({version:'test',application_uptime_seconds:120,nas:{version:'25.10.1',uptime_seconds:90000,connected:true,last_update:'2026-09-28T00:00:00Z'},integrations:[{instance_id:'truenas-main',type:'truenas',running:true,healthy:true,message:'运行中'}],migration:{imported:false,warning_count:0}}));
       return;
@@ -134,6 +142,21 @@ test.beforeAll(async () => {
     if (request.url.startsWith('/api/manage/update')) {
       response.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'});
       response.end(JSON.stringify({current:'test',available:false,disabled:true}));
+      return;
+    }
+    if (request.url.startsWith('/api/manage/username')) {
+      let raw = '';
+      for await (const chunk of request) raw += chunk;
+      const input = JSON.parse(raw);
+      if (input.current_password !== administratorPassword) {
+        response.writeHead(401, {'content-type': 'application/json'});
+        response.end(JSON.stringify({error: 'invalid_credentials'}));
+        return;
+      }
+      administratorUsername = input.username;
+      sessionValid = false;
+      response.writeHead(200, {'content-type': 'application/json'});
+      response.end(JSON.stringify({username: administratorUsername}));
       return;
     }
     if (request.url.startsWith('/api/manage/dashboard')) {
@@ -176,10 +199,12 @@ test.beforeAll(async () => {
         response.writeHead(200, {'content-type': 'application/json'}); response.end(JSON.stringify({ok: true, stage: 'feature', message: 'Plex 连接成功'})); return;
       }
       if (request.method === 'POST' && parts.length === 0) {
+        integrationMutationRequests += 1;
         const candidate = JSON.parse(raw); integrationInstances = [{id: 'plex-main', type: 'plex', enabled: true, config: candidate.config, secrets: {token: true}}]; mockPlexVisible = true;
         response.writeHead(201, {'content-type': 'application/json'}); response.end(JSON.stringify({instance: integrationInstances[0], probe: {ok:true}})); return;
       }
       if (request.method === 'PUT' && parts.length === 1) {
+        integrationMutationRequests += 1;
         const candidate = JSON.parse(raw); integrationInstances[0] = {...integrationInstances[0], config: candidate.config};
         response.writeHead(200, {'content-type': 'application/json'}); response.end(JSON.stringify({instance: integrationInstances[0], probe:{ok:true}})); return;
       }
@@ -252,10 +277,17 @@ for (const viewport of [
     }));
     expect.soft(networkColors.up).toBe(networkColors.down);
     await expect(page.getByText('天气', {exact: true})).toHaveCount(0);
-    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('深圳 · 两小时无雨');
+    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('两小时无雨');
     const weather = page.locator('[data-key="weather"]');
     await expect(weather).toHaveAttribute('data-icon', 'weather-sunny');
     await expect(weather.locator('[data-field="icon"]')).toHaveAttribute('href', '#icon-weather-sunny');
+    await expect(page.locator('[data-key="weather:forecast:0"]')).toHaveClass(/activity-row--forecast/);
+    await expect(page.locator('[data-key="weather:forecast:0"] [data-field="value"]')).toHaveText('多云');
+    await expect(page.locator('[data-key="weather:forecast:0"] [data-field="detail"]')).toHaveText('26°–33° · 雨35%');
+    await expect(page.locator('[data-key="weather:forecast:1"] [data-field="value"]')).toHaveText('阵雨');
+    await expect(page.locator('[data-key="weather:forecast:1"] [data-field="detail"]')).toHaveText('25°–31° · 雨80%');
+    await expect(page.getByText('明天', {exact: true})).toHaveCount(0);
+    await expect(page.getByText('后天', {exact: true})).toHaveCount(0);
     const sunnyMotion = await weather.locator('.activity-icon svg').evaluate((node) => {
       const style = getComputedStyle(node);
       return {animationName: style.animationName, color: style.color, width: Number.parseFloat(style.width)};
@@ -263,11 +295,14 @@ for (const viewport of [
     expect(sunnyMotion.animationName).toContain('weather-sun-turn');
     expect(sunnyMotion.color).toBe('rgb(255, 204, 76)');
     expect(sunnyMotion.width).toBeGreaterThanOrEqual(22);
+    const forecastIconWidths = await page.locator('.activity-row--forecast .activity-icon svg').evaluateAll((icons) => icons.map((icon) => Number.parseFloat(getComputedStyle(icon).width)));
+    expect(forecastIconWidths).toEqual([sunnyMotion.width, sunnyMotion.width]);
     await expect(page.getByText('健康', {exact: true})).toHaveCount(0);
     await expect(page.getByText('和风天气', {exact: true})).toHaveCount(0);
     await expect(page.getByText('Plex', {exact: true})).toBeVisible();
     await expect(page.getByText('SMART', {exact: true})).toBeVisible();
-    expect(await page.locator('.activity-row').evaluateAll((rows) => rows.map((row) => row.dataset.key))).toEqual(['weather', 'plex', 'alert:a1']);
+    await expect(page.locator('[data-key="fan"]')).toHaveClass(/activity-row--fan/);
+    expect(await page.locator('.activity-row').evaluateAll((rows) => rows.map((row) => row.dataset.key))).toEqual(['weather', 'weather:forecast:0', 'weather:forecast:1', 'fan', 'plex', 'alert:a1']);
 
     for (const removed of ['实时概览', '存储空间', '应用服务', '本地天气', '已连接', '刚刚更新', '可能忘记关了', '只显示需要关注的信息', '应用更新', 'Jellyfin', 'qBittorrent', 'ReplicationSuccess']) {
       await expect(page.getByText(removed, {exact: true})).toHaveCount(0);
@@ -293,21 +328,23 @@ for (const viewport of [
           const value = child.querySelector('[data-field="value"]:not([hidden]), [data-field="rates"]:not([hidden])').getBoundingClientRect();
           return {
             labelLeft: Math.round(label.left),
+            valueLeft: Math.round(value.left),
             valueRight: Math.round(value.right),
             top: Math.round(child.getBoundingClientRect().top),
           };
         });
         return {
           labelSpread: Math.max(...rows.map((row) => row.labelLeft)) - Math.min(...rows.map((row) => row.labelLeft)),
+          valueLeftSpread: Math.max(...rows.map((row) => row.valueLeft)) - Math.min(...rows.map((row) => row.valueLeft)),
           valueRightSpread: Math.max(...rows.map((row) => row.valueRight)) - Math.min(...rows.map((row) => row.valueRight)),
           contentRight: Math.round(node.getBoundingClientRect().right),
+          valueLeft: rows[0].valueLeft,
           valueRight: rows[0].valueRight,
           rowGaps: rows.slice(1).map((row, index) => row.top - rows[index].top),
         };
       });
       expect(metricLayout.labelSpread).toBeLessThanOrEqual(1);
-      expect(metricLayout.valueRightSpread).toBeLessThanOrEqual(2);
-      expect(Math.abs(metricLayout.contentRight - metricLayout.valueRight)).toBeLessThanOrEqual(1);
+      expect(metricLayout.valueLeftSpread).toBeLessThanOrEqual(1);
       expect(await page.locator('.health-value').count()).toBe(3);
       expect(metricLayout.rowGaps.every((gap) => gap >= 24 && gap <= 36)).toBe(true);
       const metricBottom = await page.locator('.health-metrics').evaluate((node) => node.getBoundingClientRect().bottom);
@@ -325,9 +362,40 @@ for (const viewport of [
         };
       });
       expect(weatherAlignment.lineCenterDelta).toBeLessThanOrEqual(2);
-      expect.soft(weatherAlignment.detailGap).toBeGreaterThanOrEqual(12);
       expect(weatherAlignment.detailFontSize).toBeGreaterThanOrEqual(12);
-      expect(Math.abs(weatherAlignment.contentRight - weatherAlignment.detailRight)).toBeLessThanOrEqual(1);
+      const fanLayout = await page.locator('[data-key="fan"]').evaluate((node) => {
+        const previous = node.previousElementSibling.getBoundingClientRect();
+        const row = node.getBoundingClientRect();
+        const icon = node.querySelector('.activity-icon svg').getBoundingClientRect();
+        const value = node.querySelector('[data-field="value"]').getBoundingClientRect();
+        return {
+          gap: Math.round(row.top - previous.bottom),
+          height: Math.round(row.height),
+          iconWidth: Math.round(icon.width),
+          valueRight: Math.round(value.right),
+          contentRight: Math.round(row.right),
+        };
+      });
+      expect(fanLayout.gap).toBeGreaterThanOrEqual(6);
+      expect(fanLayout.gap).toBeLessThanOrEqual(18);
+      expect(fanLayout.height).toBeLessThanOrEqual(46);
+      expect(fanLayout.iconWidth).toBeGreaterThanOrEqual(20);
+      const sharedValueColumn = await page.locator('.glass-panel').evaluate((panel) => {
+        const left = (selector) => Math.round(panel.querySelector(selector).getBoundingClientRect().left);
+        const starts = [
+          left('[data-bind="uptime"]'),
+          left('[data-key="cpu"] [data-field="value"]'),
+          left('[data-key="disk_temperature"] [data-field="value"]'),
+          left('[data-key="network"] [data-field="rates"]'),
+          left('[data-key="weather"] [data-field="detail"]'),
+          left('[data-key="weather:forecast:0"] [data-field="detail"]'),
+          left('[data-key="weather:forecast:1"] [data-field="detail"]'),
+          left('[data-key="fan"] [data-field="value"]'),
+          left('[data-key="plex"] [data-field="value"]'),
+        ];
+        return {starts, spread: Math.max(...starts) - Math.min(...starts)};
+      });
+      expect(sharedValueColumn.spread, sharedValueColumn.starts.join(', ')).toBeLessThanOrEqual(2);
       const typography = await page.locator('.glass-panel').evaluate((panel) => {
         const nodes = [
           panel.querySelector('.nas-mark b'),
@@ -387,7 +455,7 @@ for (const viewport of [
     });
     await expect(page.locator('[data-bind="connection"]')).toHaveAttribute('data-tone', 'bad');
     await expect(page.locator('[data-key="cpu"] [data-field="value"]')).toHaveText('18.4% · 56°');
-    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('深圳 · 两小时无雨');
+    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('两小时无雨');
     expect(consoleErrors).toEqual([]);
 
     await page.evaluate(async (data) => {
@@ -453,11 +521,12 @@ test('desktop panel width stays stable when the host follows its measured size',
 
 test('management page adds, keyboard reorders, configures, previews, and saves stable widgets', async ({page}, testInfo) => {
   sessionValid = true;
+  administratorUsername = 'admin';
   await page.setViewportSize({width: 1200, height: 900});
   await page.goto(`${baseURL}/manage`, {waitUntil: 'networkidle'});
   await expect(page.getByRole('heading', {name: '管理中心'})).toBeVisible();
   await page.getByRole('tab', {name: '桌面内容'}).click();
-  await expect(page.getByRole('heading', {name: '桌面内容'})).toBeVisible();
+  await expect(page.locator('#desktop-page').getByRole('heading', {name: '桌面内容'})).toBeVisible();
   await page.getByRole('button', {name: '＋ 网站状态'}).click();
   const website = page.locator('[data-id="uptime_kuma-1"]');
   await expect(website).toBeVisible();
@@ -470,6 +539,19 @@ test('management page adds, keyboard reorders, configures, previews, and saves s
   expect(managedLayout.width).toBe(500);
   expect(managedLayout.widgets.find((item) => item.id === 'uptime_kuma-1').enabled).toBe(true);
   await expect(page.locator('#layout-preview')).toHaveAttribute('src', /desktop=1&preview=/);
+  await expect(page.frameLocator('#layout-preview').locator('.glass-panel')).toBeVisible();
+  const previewFit = await page.locator('.preview-stage').evaluate((stage) => {
+    const iframe = stage.querySelector('iframe');
+    const panel = iframe.contentDocument.querySelector('.glass-panel');
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(iframe).transform);
+    return {
+      stageHeight: stage.getBoundingClientRect().height,
+      expectedHeight: panel.getBoundingClientRect().height * matrix.a + 36,
+      sharedPanels: iframe.contentDocument.querySelectorAll('.glass-panel').length,
+    };
+  });
+  expect(previewFit.sharedPanels).toBe(1);
+  expect(Math.abs(previewFit.stageHeight - previewFit.expectedHeight)).toBeLessThanOrEqual(32);
   await page.screenshot({path: testInfo.outputPath('layout-editor.jpg'), type: 'jpeg', quality: 88, fullPage: true});
 });
 
@@ -477,32 +559,231 @@ test('management overview and recovery settings are clear without exposing secre
   sessionValid = true;
   await page.goto(`${baseURL}/manage`, {waitUntil: 'networkidle'});
   await expect(page.getByText('25.10.1')).toBeVisible();
-  await expect(page.getByText('数据连接正常')).toBeVisible();
+  await expect(page.getByText('最近刷新', {exact: false})).toHaveCount(0);
   await page.getByRole('tab', {name: '设置与恢复'}).click();
   await expect(page.getByRole('heading', {name: '完整加密备份'})).toBeVisible();
-  await expect(page.getByText(/不会删除 TrueNAS 上的任何数据/)).toBeVisible();
+  await page.getByText('删除 Wallboard 配置', {exact: true}).first().click();
+  await expect(page.getByText(/不会删除 TrueNAS 数据/)).toBeVisible();
   expect(await page.locator('body').textContent()).not.toContain('correct horse battery staple');
   await page.screenshot({path: testInfo.outputPath('overview-settings.jpg'), type: 'jpeg', quality: 88, fullPage: true});
 });
 
-test('browser and desktop modes render identical activity IDs, order, and text including multiple media sessions', async ({page}) => {
+test('management layout stays bounded and aligned on wide screens', async ({page}) => {
+  sessionValid = true;
+  administratorUsername = 'admin';
+  await page.setViewportSize({width: 2560, height: 1400});
+  await page.goto(`${baseURL}/manage`, {waitUntil: 'networkidle'});
+
+  const shell = await page.locator('.management-shell').boundingBox();
+  expect(shell).not.toBeNull();
+  expect(shell.width).toBeLessThanOrEqual(1041);
+
+  const firstTab = await page.getByRole('tab', {name: '概览'}).boundingBox();
+  expect(firstTab).not.toBeNull();
+  expect(firstTab.width).toBeGreaterThan(0);
+
+  for (const tabName of ['概览', '桌面内容', '集成', '设置与恢复']) {
+    await page.getByRole('tab', {name: tabName}).click();
+    const starts = await page.locator('.manage-page:not([hidden]) .settings-section .section-content').evaluateAll((nodes) => nodes.filter((node) => node.getClientRects().length > 0).map((node) => Math.round(node.getBoundingClientRect().left)));
+    expect(starts.length).toBeGreaterThan(0);
+    expect(Math.max(...starts) - Math.min(...starts), `${tabName}: ${starts.join(', ')}`).toBeLessThanOrEqual(1);
+  }
+
+  await page.getByRole('tab', {name: '集成'}).click();
+  const integrationGeometry = await page.locator('[data-integration="plex"]').evaluate((row) => {
+    const content = row.querySelector('.section-content').getBoundingClientRect();
+    const secondary = row.querySelector('.integration-secondary').getBoundingClientRect();
+    return {contentRight: content.right, actionRight: secondary.right, gap: secondary.left - row.querySelector('.integration-status').getBoundingClientRect().right};
+  });
+  expect(integrationGeometry.actionRight).toBeLessThanOrEqual(integrationGeometry.contentRight + 1);
+  expect(integrationGeometry.gap).toBeLessThanOrEqual(40);
+
+  await page.getByRole('tab', {name: '设置与恢复'}).click();
+  await page.getByText('修改登录用户名', {exact: true}).click();
+  const form = await page.locator('#username-form').boundingBox();
+  expect(form).not.toBeNull();
+  expect(form.width).toBeLessThanOrEqual(640);
+});
+
+test('management mobile contains long content without overflow', async ({page}) => {
+  sessionValid = true;
+  administratorUsername = '管理员_这是一个较长的用户名';
+  integrationInstances = [{id: 'plex-main', type: 'plex', enabled: true, config: {url: 'http://plex-with-an-extremely-long-local-hostname-that-must-not-expand-the-page.local:32400/library'}, secrets: {token: true}}];
+  await page.setViewportSize({width: 390, height: 844});
+  await page.goto(`${baseURL}/manage`, {waitUntil: 'networkidle'});
+
+  for (const tabName of ['概览', '桌面内容', '集成', '设置与恢复']) {
+    await page.getByRole('tab', {name: tabName}).click();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  }
+
+  await page.getByRole('tab', {name: '集成'}).click();
+  const integration = page.locator('[data-integration="plex"]');
+  const wrapping = await page.evaluate(() => {
+    const username = document.querySelector('#current-username');
+    const endpoint = document.querySelector('[data-integration="plex"] .integration-endpoint');
+    return {
+      usernameWhiteSpace: getComputedStyle(username).whiteSpace,
+      usernameFits: username.scrollWidth <= username.clientWidth,
+      endpointWhiteSpace: getComputedStyle(endpoint).whiteSpace,
+      endpointFits: endpoint.scrollWidth <= endpoint.clientWidth,
+    };
+  });
+  expect(wrapping).toEqual({usernameWhiteSpace: 'normal', usernameFits: true, endpointWhiteSpace: 'normal', endpointFits: true});
+  await integration.locator('.integration-status').evaluate((node) => {
+    const error = document.createElement('p');
+    error.className = 'exception-message';
+    error.textContent = '这是一段没有空格而且非常长的中文集成错误信息用于确认内容不会撑出手机页面';
+    node.append(error);
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  await integration.getByRole('button', {name: '设置'}).click();
+  const dialog = await page.locator('#integration-dialog').boundingBox();
+  expect(dialog).not.toBeNull();
+  expect(dialog.x).toBeGreaterThanOrEqual(0);
+  expect(dialog.x + dialog.width).toBeLessThanOrEqual(390);
+  await page.getByRole('button', {name: '取消'}).click();
+
+  await page.getByRole('tab', {name: '设置与恢复'}).click();
+  await page.getByText('修改管理密码', {exact: true}).click();
+  const order = await page.locator('#password-form').evaluate((form) => {
+    const details = form.closest('details');
+    return {summaryTop: details.querySelector('summary').getBoundingClientRect().top, formTop: form.getBoundingClientRect().top};
+  });
+  expect(order.formTop).toBeGreaterThan(order.summaryTop);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+});
+
+test('management lifecycle stops overview polling and detaches inactive preview', async ({page}) => {
+  sessionValid = true;
+  overviewRequests = 0;
+  await page.addInitScript(() => {
+    const nativeSetTimeout = window.setTimeout.bind(window);
+    window.setTimeout = (callback, delay, ...args) => nativeSetTimeout(callback, delay === 60000 ? 40 : delay, ...args);
+  });
+  await page.goto(`${baseURL}/manage`, {waitUntil: 'domcontentloaded'});
+  await expect.poll(() => overviewRequests).toBeGreaterThan(1);
+
+  await page.getByRole('tab', {name: '桌面内容'}).click();
+  const stoppedAt = overviewRequests;
+  await page.waitForTimeout(150);
+  expect(overviewRequests).toBe(stoppedAt);
+  await expect(page.locator('#layout-preview')).toHaveAttribute('src', /desktop=1&preview=/);
+
+  await page.getByRole('tab', {name: '集成'}).click();
+  await expect(page.locator('#layout-preview')).toHaveAttribute('src', 'about:blank');
+  await page.getByRole('tab', {name: '桌面内容'}).click();
+  await expect(page.locator('#layout-preview')).toHaveAttribute('src', /desktop=1&preview=/);
+
+  await page.getByRole('tab', {name: '设置与恢复'}).click();
+  for (const selector of ['#username-form', '#password-form', '#download-support', '#backup-form', '#reset-form']) await expect(page.locator(selector)).toHaveCount(1);
+});
+
+for (const viewport of [{name: 'desktop', width: 1200, height: 900}, {name: 'mobile', width: 390, height: 844}]) {
+  test(`${viewport.name} management console keeps compact rows readable and keyboard-visible`, async ({page}, testInfo) => {
+    setupRequired = false;
+    sessionValid = true;
+    administratorUsername = 'admin';
+    await page.setViewportSize({width: viewport.width, height: viewport.height});
+    await page.goto(`${baseURL}/manage`, {waitUntil: 'networkidle'});
+    await expect(page.locator('.product-identity small')).toHaveCount(0);
+    if (viewport.name === 'desktop') {
+      await page.screenshot({path: testInfo.outputPath('overview-clean.jpg'), type: 'jpeg', quality: 88, fullPage: true});
+    }
+
+    const tabs = ['概览', '桌面内容', '集成', '设置与恢复'];
+    for (const tabName of tabs) {
+      const tab = page.getByRole('tab', {name: tabName});
+      await tab.click();
+      const current = page.locator('.manage-page:not([hidden])');
+      await expect(current.locator('.settings-section').first()).toBeVisible();
+      await expect(current.locator('.settings-section').first().locator('.section-label')).toBeVisible();
+      await expect(current.locator('.settings-section').first().locator('.section-content')).toBeVisible();
+      await expect(current.locator('.page-intro .eyebrow, .page-intro p')).toHaveCount(0);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+    }
+
+    await page.getByRole('tab', {name: '概览'}).click();
+    const wrapped = await page.locator('[data-section="collectors"] .section-main').evaluate((node) => {
+      const message = document.createElement('p');
+      message.className = 'exception-message';
+      message.textContent = '采集器连接失败：这是一段没有空格而且非常长的中文诊断信息用于确认内容会在栏目内部自然换行而不会把整个管理页面撑出横向滚动条';
+      node.append(message);
+      return {
+        inside: message.scrollWidth <= message.clientWidth,
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+    expect(wrapped.inside).toBe(true);
+    expect(wrapped.pageOverflow).toBeLessThanOrEqual(1);
+
+    const focusedTab = page.getByRole('tab', {name: '桌面内容'});
+    await page.getByRole('tab', {name: '概览'}).focus();
+    await page.keyboard.press('Tab');
+    await expect(focusedTab).toBeFocused();
+    const focusStyle = await focusedTab.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {outlineStyle: style.outlineStyle, outlineWidth: Number.parseFloat(style.outlineWidth)};
+    });
+    expect(focusStyle.outlineStyle).not.toBe('none');
+    expect(focusStyle.outlineWidth).toBeGreaterThanOrEqual(2);
+    await page.screenshot({path: testInfo.outputPath(`${viewport.name}-management.jpg`), type: 'jpeg', quality: 88, fullPage: true});
+  });
+}
+
+test('browser and desktop modes render identical activity IDs, order, and text including multiple media sessions', async ({context}) => {
   const twoSessions = {
     ...fixture,
     activities: [
       ...fixture.activities.filter((item) => item.id !== 'plex'),
-      {id:'plex:0',icon:'play',tone:'active',title:'Plex',value:'播放',detail:'歌曲 A · 电视'},
-      {id:'plex:1',icon:'play',tone:'active',title:'Plex',value:'暂停',detail:'歌曲 B · 手机'},
+      {id:'plex:0',icon:'play',tone:'active',title:'Plex',value:'歌曲 A',detail:'播放 · 电视'},
+      {id:'plex:1',icon:'play',tone:'active',title:'Plex',value:'歌曲 B',detail:'暂停 · 手机'},
     ],
   };
   const capture = async (target) => {
-    await page.goto(target, {waitUntil:'networkidle'});
-    await page.evaluate(async (data) => { const {renderDashboard} = await import('/view.js'); renderDashboard(document, data); }, twoSessions);
-    return page.locator('.activity-row').evaluateAll((rows) => rows.map((row) => ({id:row.dataset.key, text:row.textContent.replace(/\s+/g,' ').trim()})));
+    const targetPage = await context.newPage();
+    await targetPage.goto(target, {waitUntil:'networkidle'});
+    await targetPage.evaluate(async (data) => { const {renderDashboard} = await import('/view.js'); renderDashboard(document, data); }, twoSessions);
+    const rows = await targetPage.locator('.activity-row').evaluateAll((items) => items.map((row) => ({id:row.dataset.key, text:row.textContent.replace(/\s+/g,' ').trim()})));
+    const mediaClass = await targetPage.locator('[data-key="plex:0"]').getAttribute('class');
+    await targetPage.close();
+    return {rows, mediaClass};
   };
   const browser = await capture(baseURL);
   const desktop = await capture(`${baseURL}/?desktop=1`);
-  expect(desktop).toEqual(browser);
-  expect(browser.filter((item) => item.id.startsWith('plex:')).map((item) => item.id)).toEqual(['plex:0','plex:1']);
+  expect(desktop.rows).toEqual(browser.rows);
+  expect(browser.rows.filter((item) => item.id.startsWith('plex:')).map((item) => item.id)).toEqual(['plex:0','plex:1']);
+  expect(desktop.mediaClass).toContain('activity-row--media');
+});
+
+test('download activity hides names, aligns its icon, and renders every task progress', async ({page}) => {
+  await page.goto(baseURL, {waitUntil: 'networkidle'});
+  await page.evaluate(async (base) => {
+    const {renderDashboard} = await import('/view.js');
+    renderDashboard(document, {
+      ...base,
+      activities: [
+        ...base.activities,
+        {id:'downloads',icon:'download',tone:'active',title:'下载',value:'3 个 · 6.7 MB/s',detail:'Private.Movie.mkv · 68%',progress:[68,20,5]},
+      ],
+    });
+  }, fixture);
+
+  const download = page.locator('[data-key="downloads"]');
+  await expect(download).toHaveClass(/activity-row--download/);
+  await expect(page.getByText('Private.Movie.mkv', {exact: false})).toHaveCount(0);
+  await expect(download.locator('[data-field="detail"]')).toBeHidden();
+  await expect(download.locator('.download-progress')).toHaveCount(3);
+  await expect(download.locator('.download-progress-value')).toHaveText(['68%', '20%', '5%']);
+  await expect(download.locator('.download-progress-label')).toHaveText(['任务 1', '任务 2', '任务 3']);
+  const iconOffset = await page.locator('.glass-panel').evaluate((panel) => {
+    const weather = panel.querySelector('[data-key="weather"] .activity-icon svg').getBoundingClientRect();
+    const downloadIcon = panel.querySelector('[data-key="downloads"] .activity-icon svg').getBoundingClientRect();
+    return Math.abs(weather.left - downloadIcon.left);
+  });
+  expect(iconOffset).toBeLessThanOrEqual(2);
 });
 
 test('setup-required dashboard links to the first-run wizard', async ({page}) => {
@@ -544,6 +825,7 @@ test('six-step setup completes without retaining submitted secrets', async ({pag
   await page.getByRole('button', {name: '测试 TrueNAS 连接'}).click();
   await expect(page.getByText('已连接 TrueNAS 25.10.1')).toBeVisible();
   await page.getByRole('button', {name: '继续'}).click();
+  await page.getByLabel('管理员用户名').fill('Owner');
   await page.getByLabel('管理员密码', {exact: true}).fill('correct horse battery staple');
   await page.getByLabel('再次输入').fill('correct horse battery staple');
   await page.getByRole('button', {name: '继续'}).click();
@@ -555,22 +837,50 @@ test('six-step setup completes without retaining submitted secrets', async ({pag
   await page.waitForURL('**/login');
   expect(lastSetupComplete.api_key).toBe('temporary-api-secret');
   expect(lastSetupComplete.url).toBe('wss://nas.local/api/current');
+  expect(lastSetupComplete.administrator_username).toBe('Owner');
   expect(await page.locator('body').textContent()).not.toContain('temporary-api-secret');
 });
 
-test('login failure clears the password, success opens management, and logout ends the session', async ({page}) => {
+test('legacy administrator login and username change preserve the password but revoke sessions', async ({page}) => {
   setupRequired = false;
   sessionValid = false;
+  administratorUsername = 'admin';
+  administratorPassword = 'correct horse battery staple';
   await page.goto(`${baseURL}/login`, {waitUntil: 'domcontentloaded'});
+  const username = page.getByLabel('管理员用户名');
   const password = page.getByLabel('管理员密码');
-  await password.fill('wrong password value');
+  await username.fill('somebody');
+  await password.fill('correct horse battery staple');
   await page.getByRole('button', {name: '登录'}).click();
-  await expect(page.getByRole('alert')).toHaveText('密码不正确');
+  await expect(page.getByRole('alert')).toHaveText('用户名或密码不正确');
+  await expect(username).toHaveValue('somebody');
   await expect(password).toHaveValue('');
+  await username.fill('admin');
   await password.fill('correct horse battery staple');
   await page.getByRole('button', {name: '登录'}).click();
   await page.waitForURL('**/manage');
   await expect(page.getByRole('heading', {name: '管理中心'})).toBeVisible();
+  await expect(page.locator('#current-username')).toHaveText('admin');
+
+  await page.getByRole('tab', {name: '设置与恢复'}).click();
+  await page.getByText('修改登录用户名', {exact: true}).click();
+  const usernameForm = page.locator('#username-form');
+  await usernameForm.getByLabel('新用户名').fill('Owner');
+  await usernameForm.getByLabel('当前密码').fill('correct horse battery staple');
+  await usernameForm.getByRole('button', {name: '修改用户名'}).click();
+  await page.waitForURL('**/login');
+  expect(sessionValid).toBe(false);
+
+  await username.fill('admin');
+  await password.fill('correct horse battery staple');
+  await page.getByRole('button', {name: '登录'}).click();
+  await expect(page.getByRole('alert')).toHaveText('用户名或密码不正确');
+  await expect(password).toHaveValue('');
+  await username.fill('owner');
+  await password.fill('correct horse battery staple');
+  await page.getByRole('button', {name: '登录'}).click();
+  await page.waitForURL('**/manage');
+  await expect(page.locator('#current-username')).toHaveText('Owner');
   await page.getByRole('button', {name: '退出'}).click();
   await page.waitForURL('**/login');
   expect(sessionValid).toBe(false);
@@ -595,32 +905,43 @@ test('setup is mobile-safe and a configured reload never asks for secrets again'
 test('integration center adds, retains masked token, and disables Plex without restart', async ({page}, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  sessionValid = true; integrationInstances = []; mockPlexVisible = false;
+  sessionValid = true; integrationInstances = []; integrationMutationRequests = 0; mockPlexVisible = false;
   await page.goto(`${baseURL}/manage`, {waitUntil: 'networkidle'});
   const integrationAPI = await page.evaluate(async () => { const response = await fetch('/api/manage/integrations'); return {status: response.status, body: await response.text()}; });
   expect(integrationAPI.status, integrationAPI.body).toBe(200);
   await page.waitForTimeout(100);
   expect(pageErrors).toEqual([]);
-  await page.getByRole('tab', {name: '集成中心'}).click();
+  await page.getByRole('tab', {name: '集成'}).click();
   const card = page.locator('[data-integration="plex"]');
   await expect(card).toBeVisible();
   await page.screenshot({path: testInfo.outputPath('integration-center.jpg'), type: 'jpeg', quality: 88, fullPage: true});
   await card.getByRole('button', {name: '添加'}).click();
+  const dialog = page.locator('#integration-dialog');
+  await expect(dialog.getByText('为每个播放终端分别显示当前播放会话。')).toBeVisible();
+  await expect(dialog.getByText('登录 Plex Web 后复制 X-Plex-Token。')).toBeVisible();
+  await expect(page.locator('[name="call_timeout"]')).not.toBeVisible();
+  await page.getByText('高级设置', {exact: true}).click();
+  await expect(page.locator('[name="call_timeout"]')).toBeVisible();
+  await page.screenshot({path: testInfo.outputPath('integration-dialog-guidance.jpg'), type: 'jpeg', quality: 88});
   await page.locator('[name="url"]').fill('http://plex.local:32400');
   await page.locator('[name="token"]').fill('plex-secret');
   await page.getByRole('button', {name: '测试连接'}).click();
   await expect(page.getByText('Plex 连接成功')).toBeVisible();
   await page.getByRole('button', {name: '保存'}).click();
-  await expect(card.getByText('已配置')).toBeVisible();
+  await expect(card.getByText('http://plex.local:32400')).toBeVisible();
+  await expect(card.getByText('已启用')).toBeVisible();
+  expect(integrationMutationRequests).toBe(1);
   await card.getByRole('button', {name: '设置'}).click();
   await expect(page.locator('[name="token"]')).toHaveValue('********');
   await page.getByRole('button', {name: '取消'}).click();
-  await page.goto(baseURL, {waitUntil: 'networkidle'});
-  await expect(page.getByText('Plex', {exact: true})).toBeVisible();
-  await page.goto(`${baseURL}/manage`, {waitUntil: 'networkidle'});
-  await page.getByRole('tab', {name: '集成中心'}).click();
+  await card.getByRole('button', {name: '设置'}).click();
+  await page.getByRole('button', {name: '保存'}).click();
+  await page.waitForTimeout(100);
+  expect(integrationMutationRequests).toBe(2);
+  const enabledDashboard = await page.evaluate(async () => (await fetch('/api/dashboard')).json());
+  expect(enabledDashboard.activities.some((item) => item.id === 'plex')).toBe(true);
   await page.locator('[data-integration="plex"]').getByRole('button', {name: '停用'}).click();
-  await page.goto(baseURL, {waitUntil: 'networkidle'});
-  await expect(page.getByText('Plex', {exact: true})).toHaveCount(0);
+  const disabledDashboard = await page.evaluate(async () => (await fetch('/api/dashboard')).json());
+  expect(disabledDashboard.activities.some((item) => item.id === 'plex')).toBe(false);
   mockPlexVisible = true;
 });

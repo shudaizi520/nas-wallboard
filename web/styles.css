@@ -53,13 +53,14 @@ body {
 }
 
 .glass-panel {
+  --value-column-start: 6.75rem;
   position: absolute;
   z-index: 1;
   top: clamp(2.25rem, 4.8vh, 5.125rem);
   right: 4vw;
   width: min(var(--panel-width, 560px), calc(100vw - 2rem));
   min-width: 0;
-  padding: clamp(0.9rem, 0.85vw, 1.1rem) clamp(1rem, 1vw, 1.2rem) clamp(0.95rem, 0.9vw, 1.15rem);
+  padding: clamp(0.9rem, 0.85vw, 1.1rem) clamp(1rem, 1vw, 1.2rem) 0.25rem;
   overflow: hidden;
   border: 1px solid rgba(218, 239, 255, 0.12);
   border-radius: clamp(1.15rem, 1.2vw, 1.55rem);
@@ -97,6 +98,15 @@ body {
   margin-top: clamp(0.65rem, 0.72vw, 0.8rem);
 }
 
+.nas-summary {
+  display: grid;
+  grid-template-columns: var(--value-column-start) minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  column-gap: 0;
+}
+
 .nas-mark {
   display: inline-flex;
   align-items: center;
@@ -111,6 +121,14 @@ body {
   letter-spacing: 0.12em;
 }
 
+.nas-meta {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
 .nas-uptime {
   display: inline-flex;
   align-items: baseline;
@@ -122,6 +140,26 @@ body {
   letter-spacing: 0.025em;
   line-height: 1;
   white-space: nowrap;
+}
+
+.nas-power {
+  color: var(--panel-copy);
+  font-size: var(--panel-copy-size);
+  font-weight: var(--panel-copy-weight);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.nas-power::before {
+  margin: 0 0.45rem;
+  color: var(--faint);
+  content: "·";
+}
+
+.nas-uptime[hidden] + .nas-power::before {
+  display: none;
 }
 
 .nas-uptime::before {
@@ -144,7 +182,7 @@ body {
 
 .health-value {
   display: grid;
-  grid-template-columns: 5.2rem minmax(0, 1fr);
+  grid-template-columns: var(--value-column-start) minmax(0, 1fr);
   min-width: 0;
   min-height: 1.78rem;
   align-items: baseline;
@@ -165,7 +203,7 @@ body {
 .health-value b {
   grid-row: 1;
   grid-column: 2;
-  justify-self: end;
+  justify-self: start;
   overflow: hidden;
   color: var(--panel-copy);
   font-size: var(--panel-copy-size);
@@ -180,7 +218,7 @@ body {
   display: flex;
   grid-row: 1;
   grid-column: 2;
-  justify-self: end;
+  justify-self: start;
   align-items: baseline;
   justify-content: flex-start;
   gap: 0.55rem;
@@ -265,11 +303,11 @@ body {
 }
 
 .activity-line {
-  display: flex;
+  display: grid;
+  grid-template-columns: calc(var(--value-column-start) - 3.4rem) minmax(0, 1fr);
   min-width: 0;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
+  column-gap: 0.7rem;
 }
 
 .activity-line strong,
@@ -288,8 +326,9 @@ body {
 }
 
 .activity-line span {
-  flex: 0 0 auto;
-  max-width: 45%;
+  min-width: 0;
+  max-width: 100%;
+  justify-self: start;
   color: rgba(238, 245, 255, 0.76);
   font-size: clamp(0.68rem, 0.64vw, 0.8rem);
   font-variant-numeric: tabular-nums;
@@ -322,8 +361,8 @@ body {
 .activity-row[data-tone="warn"] .activity-signal,
 .activity-row[data-tone="bad"] .activity-signal { opacity: 1; }
 
-.activity-row--weather {
-  grid-template-columns: 1.5rem auto minmax(0, 1fr);
+.activity-row.activity-row--weather {
+  grid-template-columns: 1.5rem calc(var(--value-column-start) - 2.5rem) minmax(0, 1fr);
   grid-template-rows: auto;
   min-height: 2.35rem;
   column-gap: 0.5rem;
@@ -474,23 +513,249 @@ body {
 }
 
 .activity-row--weather .activity-copy p {
+  display: -webkit-box;
   grid-row: 1;
   grid-column: 3;
-  justify-self: stretch;
+  justify-self: start;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
-  margin: 0 0 0 0.35rem;
+  margin: 0;
   overflow: hidden;
   color: var(--panel-copy);
   font-size: var(--panel-copy-size);
   font-weight: var(--panel-copy-weight);
   line-height: 1.3;
-  text-align: right;
+  text-align: left;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .activity-row--weather .activity-signal { display: none; }
+
+.activity-row.activity-row--forecast {
+  grid-template-columns: 1.5rem calc(var(--value-column-start) - 2.5rem) minmax(0, 1fr);
+  min-height: 1.6rem;
+  column-gap: 0.5rem;
+  padding: 0.05rem 0;
+}
+
+.activity-row--forecast .activity-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  justify-content: start;
+}
+
+.activity-row--forecast .activity-icon svg {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.activity-row--forecast .activity-copy,
+.activity-row--forecast .activity-line {
+  display: contents;
+}
+
+.activity-row--forecast .activity-line strong {
+  display: none;
+}
+
+.activity-row--forecast .activity-line span {
+  grid-column: 2;
+  max-width: 100%;
+  justify-self: start;
+  color: var(--panel-copy);
+  font-size: var(--panel-copy-size);
+  font-weight: var(--panel-copy-weight);
+}
+
+.activity-row--forecast .activity-copy p {
+  grid-column: 3;
+  justify-self: start;
+  width: 100%;
+  margin: 0;
+  color: var(--panel-copy);
+  font-size: var(--panel-copy-size);
+  font-weight: var(--panel-copy-weight);
+  text-align: left;
+}
+
+.activity-row--forecast .activity-signal { display: none; }
+
+.activity-row.activity-row--fan {
+  box-sizing: border-box;
+  grid-template-columns: 1.5rem calc(var(--value-column-start) - 2.5rem) minmax(0, 1fr);
+  grid-template-rows: 1.5rem;
+  min-height: 1.9rem;
+  align-content: center;
+  column-gap: 0.5rem;
+  margin-top: 0.4rem;
+  padding: 0;
+}
+
+.activity-row--fan .activity-icon {
+  grid-column: 1;
+  width: 1.5rem;
+  height: 1.5rem;
+  justify-content: start;
+}
+
+.activity-row--fan .activity-icon svg {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.activity-row--fan .activity-copy,
+.activity-row--fan .activity-line {
+  display: contents;
+}
+
+.activity-row--fan .activity-line strong {
+  grid-column: 2;
+  align-self: center;
+  line-height: 1.2;
+}
+
+.activity-row--fan .activity-line span {
+  grid-column: 3;
+  align-self: center;
+  max-width: 100%;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.activity-row--fan .activity-copy p,
+.activity-row--fan .activity-signal {
+  display: none;
+}
+
+.activity-row.activity-row--media {
+  box-sizing: border-box;
+  grid-template-columns: 1.5rem calc(var(--value-column-start) - 2.5rem) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  min-height: 2.65rem;
+  align-content: center;
+  column-gap: 0.5rem;
+  row-gap: 0.08rem;
+  padding: 0.12rem 0 0.08rem;
+}
+
+.activity-row--media .activity-icon {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 1.5rem;
+  height: 1.5rem;
+  justify-content: start;
+}
+
+.activity-row--media .activity-icon svg {
+  width: 1.28rem;
+  height: 1.28rem;
+}
+
+.activity-row--media .activity-copy {
+  display: contents;
+}
+
+.activity-row--media .activity-line {
+  display: contents;
+}
+
+.activity-row--media .activity-line strong {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.activity-row--media .activity-line span {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.activity-row--media .activity-copy p {
+  box-sizing: border-box;
+  grid-column: 3;
+  grid-row: 2;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  line-height: 1.15;
+}
+
+.activity-row--media .activity-signal {
+  display: none;
+}
+
+.activity-row.activity-row--download {
+  align-items: start;
+  min-height: 2.7rem;
+  padding: 0.48rem 0 0.42rem;
+}
+
+.activity-row--download .activity-icon {
+  margin-top: 0.02rem;
+}
+
+.activity-row--download .activity-icon svg {
+  transform: translateX(-0.45rem);
+}
+
+.activity-row--download .activity-copy p,
+.activity-row--download .activity-signal {
+  display: none;
+}
+
+.activity-progress-list {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.38rem;
+}
+
+.activity-progress-list[hidden] {
+  display: none;
+}
+
+.download-progress {
+  display: grid;
+  grid-template-columns: 2.7rem minmax(2.5rem, 1fr) 2.25rem;
+  min-width: 0;
+  align-items: center;
+  column-gap: 0.42rem;
+  color: rgba(222, 234, 249, 0.66);
+  font-variant-numeric: tabular-nums;
+}
+
+.download-progress-label,
+.download-progress-value {
+  font-size: clamp(0.6rem, 0.56vw, 0.7rem);
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.download-progress-value {
+  justify-self: end;
+  color: rgba(238, 245, 255, 0.78);
+}
+
+.download-progress-track {
+  position: relative;
+  height: 0.24rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(166, 195, 225, 0.14);
+}
+
+.download-progress-track i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--progress, 0%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(84, 209, 231, 0.72), rgba(106, 223, 205, 0.9));
+  box-shadow: 0 0 0.45rem rgba(86, 214, 225, 0.24);
+}
 
 .icon-sprite {
   position: absolute;

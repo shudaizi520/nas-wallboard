@@ -16,14 +16,25 @@ async function load() {
     window.location.replace('/login');
     throw new Error('unauthorized');
   }
-  csrf = (await session.json()).csrf;
+  const sessionData = await session.json();
+  csrf = sessionData.csrf;
+  document.querySelector('#current-username').textContent = sessionData.username;
+  const accountUsername = document.querySelector('#account-username');
+  if (accountUsername) accountUsername.textContent = sessionData.username;
+  const usernameInput = document.querySelector('#username-form [name="username"]');
+  if (usernameInput) usernameInput.value = sessionData.username;
   const api = new ManageAPI(csrf);
   overview = createOverviewPage(document.querySelector('#overview-page'), api);
-  overview.start().catch(() => { document.querySelector('#overview-details').textContent = '概览暂时无法读取；其他设置仍可使用。'; });
+  overview.start().catch(() => {
+    const error = document.createElement('p');
+    error.className = 'exception-message';
+    error.textContent = '概览加载失败';
+    document.querySelector('#overview-sections').replaceChildren(error);
+  });
   editor = createLayoutEditor(document.querySelector('#desktop-page'), api);
   await editor.load();
   const center = createIntegrationCenter(document.querySelector('#integration-cards'), api);
-  center.load().catch((error) => { document.querySelector('#integration-cards').textContent = `集成中心加载失败：${error.message}`; });
+  center.load().catch(() => { document.querySelector('#integration-cards').textContent = '集成加载失败'; });
   createSettingsPage(document.querySelector('#settings-page'), api);
 }
 
@@ -31,8 +42,8 @@ for (const tab of document.querySelectorAll('[data-page-target]')) {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.manage-page').forEach((page) => { page.hidden = page.id !== tab.dataset.pageTarget; });
     document.querySelectorAll('[data-page-target]').forEach((button) => button.setAttribute('aria-selected', String(button === tab)));
-    const titles = {'overview-page': '管理中心', 'desktop-page': '桌面内容', 'integrations-page': '集成中心', 'settings-page': '设置与恢复'};
-    document.querySelector('h1').textContent = titles[tab.dataset.pageTarget] ?? '管理中心';
+    const titles = {'overview-page': '管理中心', 'desktop-page': '桌面内容', 'integrations-page': '集成', 'settings-page': '设置与恢复'};
+    document.querySelector('#page-title').textContent = titles[tab.dataset.pageTarget] ?? '管理中心';
     if (tab.dataset.pageTarget === 'overview-page') overview?.start(); else overview?.stop();
     editor?.setActive(tab.dataset.pageTarget === 'desktop-page');
   });

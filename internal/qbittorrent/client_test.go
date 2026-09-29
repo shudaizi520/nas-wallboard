@@ -70,7 +70,7 @@ func TestCurrentLogsInAndRetriesExpiredSessionOnce(t *testing.T) {
 	if loginCalls != 1 || infoCalls != 2 {
 		t.Fatalf("calls = login %d, info %d", loginCalls, infoCalls)
 	}
-	if got.ActiveCount != 1 || got.DownloadBps != 12500000 || len(got.Items) != 1 || got.Items[0].Name != "Ubuntu.iso" || got.Items[0].ProgressPercent != 68.4 {
+	if got.ActiveCount != 2 || got.DownloadBps != 12500000 || len(got.Items) != 2 || got.Items[0].Name != "Ubuntu.iso" || got.Items[0].ProgressPercent != 68.4 || got.Items[1].Name != "Queued.iso" || got.Items[1].ProgressPercent != 20 {
 		t.Fatalf("download status = %#v", got)
 	}
 }

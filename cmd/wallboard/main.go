@@ -24,6 +24,7 @@ import (
 	"example.com/nas-wallboard/internal/integrations"
 	"example.com/nas-wallboard/internal/jellyfin"
 	"example.com/nas-wallboard/internal/model"
+	"example.com/nas-wallboard/internal/persist"
 	"example.com/nas-wallboard/internal/plex"
 	"example.com/nas-wallboard/internal/qbittorrent"
 	"example.com/nas-wallboard/internal/scrutiny"
@@ -336,6 +337,9 @@ func servePublic(dataRoot string, startup startupSelection, authManager *auth.Ma
 			return fmt.Errorf("initialize widget layout: %w", err)
 		}
 	}
+	if err := widgetService.MigrateDefaults(); err != nil {
+		return fmt.Errorf("migrate widget defaults: %w", err)
+	}
 	if len(startup.State.Snapshot().Widgets) > 0 {
 		configured, configureErr := widgetService.DashboardConfig(dashboardConfig)
 		if configureErr != nil {
@@ -362,7 +366,20 @@ func servePublic(dataRoot string, startup startupSelection, authManager *auth.Ma
 		return fmt.Errorf("start integrations: %w", err)
 	}
 	defer runtimeManager.Close()
-	integrationService := integration.NewService(registry, startup.State, startup.Secrets, integration.ServiceOptions{ProbeTimeout: 10 * time.Second, OnChange: runtimeManager.Apply})
+	integrationService := integration.NewService(registry, startup.State, startup.Secrets, integration.ServiceOptions{
+		ProbeTimeout: 10 * time.Second,
+		Initialize:   widgetService.AddIntegrationDefaults,
+		OnChange: func(changeCtx context.Context, before, after []persist.Integration) error {
+			if err := runtimeManager.Apply(changeCtx, before, after); err != nil {
+				return err
+			}
+			configured, err := widgetService.DashboardConfig(dashboardConfig)
+			if err != nil {
+				return err
+			}
+			return builder.Update(configured)
+		},
+	})
 	var updateChecker *update.Checker
 	if repository != "" {
 		updateChecker, err = update.New(repository, version, &http.Client{Timeout: 8 * time.Second}, time.Now)
@@ -453,13 +470,34 @@ func appendQBittorrentJob(jobs []collector.Job, cfg config.Config, store *state.
 	if !cfg.QBittorrent.Enabled {
 		return jobs
 	}
+	every := cfg.Refresh.QBittorrent.Duration
+	idleTicks := int((time.Minute + every - 1) / every)
+	remainingIdleTicks := 0
+	hasResult := false
+	last := model.DownloadStatus{}
 	return append(jobs, collector.Job{
 		Name:    "qbittorrent",
-		Every:   cfg.Refresh.QBittorrent.Duration,
+		Every:   every,
 		Timeout: cfg.QBittorrent.CallTimeout.Duration,
 		Run: func(ctx context.Context) error {
+			if hasResult && last.ActiveCount == 0 && remainingIdleTicks > 0 {
+				remainingIdleTicks--
+				store.SetDownloads(last, nil)
+				return nil
+			}
 			value, err := reader.Current(ctx)
 			store.SetDownloads(value, err)
+			if err != nil {
+				remainingIdleTicks = 0
+				return err
+			}
+			last = value
+			hasResult = true
+			if value.ActiveCount == 0 {
+				remainingIdleTicks = idleTicks - 1
+			} else {
+				remainingIdleTicks = 0
+			}
 			return err
 		},
 	})

@@ -41,7 +41,7 @@ func layoutFixture(t *testing.T) (http.Handler, *persist.Store, *dashboard.Build
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := authManager.SetInitialPassword("correct horse battery staple"); err != nil {
+	if err := authManager.SetInitialCredentials("admin", "correct horse battery staple"); err != nil {
 		t.Fatal(err)
 	}
 	base := config.DashboardConfig{Width: 360, Metrics: []config.MetricConfig{{Type: config.MetricTypeCPU}}, Activities: []config.ActivityConfig{{Type: config.ActivityTypePlex}}}

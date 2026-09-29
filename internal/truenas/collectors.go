@@ -164,7 +164,7 @@ func (c *Collectors) CollectRealtime(ctx context.Context) (model.RealtimeStatus,
 				cpu = clampPercent(value)
 			}
 		case "cputemp":
-			if value, found := latestMetric(graph, "cpu"); found && value > 0 {
+			if value, found := latestCPUTemperature(graph); found && value > 0 {
 				cpuTemperature = value
 			}
 		case "memory":
@@ -222,6 +222,32 @@ func (c *Collectors) realtimeMetadata(ctx context.Context) ([]string, uint64, er
 		c.memoryLoaded = true
 	}
 	return append([]string(nil), c.interfaceIDs...), c.memoryTotalByte, nil
+}
+
+func latestCPUTemperature(graph netdataWire) (float64, bool) {
+	var hottest float64
+	foundCore := false
+	for _, label := range graph.Legend {
+		suffix := strings.TrimPrefix(label, "cpu")
+		if suffix == label || suffix == "" {
+			continue
+		}
+		if _, err := strconv.Atoi(suffix); err != nil {
+			continue
+		}
+		value, found := latestMetric(graph, label)
+		if !found || value <= 0 {
+			continue
+		}
+		if !foundCore || value > hottest {
+			hottest = value
+			foundCore = true
+		}
+	}
+	if foundCore {
+		return hottest, true
+	}
+	return latestMetric(graph, "cpu")
 }
 
 func latestMetric(graph netdataWire, name string) (float64, bool) {

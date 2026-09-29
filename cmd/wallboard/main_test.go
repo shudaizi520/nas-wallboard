@@ -23,6 +23,11 @@ type fakeDownloadReader struct {
 	err    error
 }
 
+type scriptedDownloadReader struct {
+	statuses []model.DownloadStatus
+	calls    int
+}
+
 type fakeMediaReader struct {
 	status model.MediaStatus
 	err    error
@@ -63,6 +68,12 @@ func (f *scriptedMediaReader) Current(context.Context) (model.MediaStatus, error
 
 func (f fakeDownloadReader) Current(context.Context) (model.DownloadStatus, error) {
 	return f.status, f.err
+}
+
+func (f *scriptedDownloadReader) Current(context.Context) (model.DownloadStatus, error) {
+	status := f.statuses[f.calls]
+	f.calls++
+	return status, nil
 }
 
 func (f fakeFanReader) CurrentFan(context.Context) (model.FanStatus, error) {
@@ -148,6 +159,52 @@ func TestAppendQBittorrentJobIsOptionalAndIndependent(t *testing.T) {
 	_ = jobs[1].Run(context.Background())
 	if got := store.Snapshot().Downloads.Error; got != "unauthorized" {
 		t.Fatalf("downloads error = %q", got)
+	}
+}
+
+func TestQBittorrentJobPollsOncePerMinuteWhenIdleAndEveryTickDuringDownloads(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	store := state.New("test", state.StaleAfter{Downloads: time.Minute}, func() time.Time { return now })
+	cfg := config.Config{
+		QBittorrent: config.QBittorrentConfig{Enabled: true, CallTimeout: config.Duration{Duration: 5 * time.Second}},
+		Refresh:     config.RefreshConfig{QBittorrent: config.Duration{Duration: 15 * time.Second}},
+	}
+	reader := &scriptedDownloadReader{statuses: []model.DownloadStatus{
+		{},
+		{ActiveCount: 1},
+		{ActiveCount: 1},
+		{},
+	}}
+	job := appendQBittorrentJob(nil, cfg, store, reader)[0]
+
+	if err := job.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if err := job.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if reader.calls != 1 {
+		t.Fatalf("idle qBittorrent requests after 45 seconds = %d, want 1", reader.calls)
+	}
+	if err := job.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if reader.calls != 2 || store.Snapshot().Downloads.Data.ActiveCount != 1 {
+		t.Fatalf("qBittorrent did not discover downloads on the one-minute check: calls=%d snapshot=%#v", reader.calls, store.Snapshot().Downloads.Data)
+	}
+	if err := job.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if reader.calls != 3 {
+		t.Fatalf("active qBittorrent requests after one tick = %d, want 3", reader.calls)
+	}
+	if err := job.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if reader.calls != 4 || store.Snapshot().Downloads.Data.ActiveCount != 0 {
+		t.Fatalf("qBittorrent did not clear completed downloads: calls=%d snapshot=%#v", reader.calls, store.Snapshot().Downloads.Data)
 	}
 }
 

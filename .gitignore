@@ -17,3 +17,5 @@ playwright-report/
 windows/**/bin/
 windows/**/obj/
 web/downloads/*.exe
+web/downloads/*.pdb
+web/downloads/*.xml

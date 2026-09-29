@@ -35,9 +35,9 @@ func TestCurrentReadsPlayingAndPausedSessionsWithHeaderToken(t *testing.T) {
 			t.Fatalf("Accept = %q", request.Header.Get("Accept"))
 		}
 		_, _ = w.Write([]byte(`{"MediaContainer":{"Metadata":[
-            {"type":"episode","title":"第一集","grandparentTitle":"剧集","Player":{"title":"客厅电视","state":"paused"},"User":{"title":"Alice"}},
-            {"type":"movie","title":"电影","Player":{"product":"Plex Web","state":"playing"},"User":{"title":"Bob"}}
-        ]}}`))
+			{"type":"episode","title":"第一集","grandparentTitle":"剧集","viewOffset":42000,"Player":{"title":"客厅电视","state":"paused"},"User":{"title":"Alice"},"Session":{"id":"session-tv"}},
+			{"type":"movie","title":"电影","viewOffset":73000,"Player":{"product":"Plex Web","state":"playing"},"User":{"title":"Bob"},"Session":{"id":"session-web"}}
+		]}}`))
 	}))
 	defer server.Close()
 
@@ -51,6 +51,9 @@ func TestCurrentReadsPlayingAndPausedSessionsWithHeaderToken(t *testing.T) {
 	}
 	if len(got.Sessions) != 2 || got.Sessions[0].Title != "剧集 · 第一集" || got.Sessions[0].Device != "客厅电视" || got.Sessions[0].User != "Alice" || !got.Sessions[0].Paused || got.Sessions[1].Title != "电影" || got.Sessions[1].Device != "Plex Web" {
 		t.Fatalf("media status = %#v", got)
+	}
+	if got.Sessions[0].SessionID != "session-tv" || got.Sessions[0].ProgressMillis != 42000 || got.Sessions[1].SessionID != "session-web" || got.Sessions[1].ProgressMillis != 73000 {
+		t.Fatalf("session identity/progress = %#v", got.Sessions)
 	}
 }
 

@@ -91,13 +91,14 @@ func (s *server) login(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	var input struct {
+		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(w, request, 16*1024, &input); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	session, err := s.auth.Login(ip, input.Password)
+	session, err := s.auth.Login(ip, input.Username, input.Password)
 	if err != nil {
 		writeAPIError(w, http.StatusUnauthorized, "invalid_credentials")
 		return
@@ -107,7 +108,7 @@ func (s *server) login(w http.ResponseWriter, request *http.Request) {
 		Name: sessionCookieName, Value: session.ID, Path: "/", HttpOnly: true,
 		Secure: request.TLS != nil, SameSite: http.SameSiteStrictMode,
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "csrf": session.CSRFToken, "expires_at": session.ExpiresAt})
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "csrf": session.CSRFToken, "expires_at": session.ExpiresAt, "username": s.auth.Username()})
 }
 
 func (s *server) session(w http.ResponseWriter, request *http.Request) {
@@ -119,7 +120,7 @@ func (s *server) session(w http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "csrf": s.auth.CSRF(principal.SessionID)})
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "csrf": s.auth.CSRF(principal.SessionID), "username": principal.Username})
 }
 
 func (s *server) logout(w http.ResponseWriter, request *http.Request) {

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   createPreviewController,
+  layoutPresentation,
   isLayoutDirty,
   reorderWidgets,
   resetWidget,
@@ -13,8 +14,8 @@ import {
 
 const catalog = [
   {id: 'cpu', integration_type: 'truenas', placement: 'metric', label: '处理器', visibility: 'always', defaults: {}},
-  {id: 'pool_capacity', integration_type: 'truenas', placement: 'metric', label: '存储池容量', visibility: 'always', defaults: {warning: 80, critical: 92}},
-  {id: 'plex', integration_type: 'plex', placement: 'activity', label: 'Plex 播放', visibility: 'non_empty', defaults: {limit: 3}},
+  {id: 'pool_capacity', integration_type: 'truenas', placement: 'metric', label: '存储池容量', visibility: 'always', defaults: {warning: 80, critical: 92}, fields: [{key: 'warning', kind: 'integer', label: '警告阈值'}]},
+  {id: 'plex', integration_type: 'plex', placement: 'activity', label: 'Plex 播放', visibility: 'non_empty', defaults: {limit: 3}, fields: [{key: 'limit', kind: 'integer', label: '最多显示'}]},
 ];
 const sources = [{id: 'truenas-main', type: 'truenas'}, {id: 'plex-main', type: 'plex'}];
 
@@ -60,13 +61,26 @@ test('dirty state detects unsaved changes without depending on object identity',
   assert.equal(isLayoutDirty(saved, {...saved, width: 500}), true);
 });
 
+test('layout presentation separates enabled rows, advanced controls, grouped additions, and dirty actions', () => {
+  const saved = layout();
+  const clean = layoutPresentation(saved, saved, catalog, sources);
+  assert.deepEqual(clean.visible.map((row) => row.id), ['cpu-1', 'plex-1']);
+  assert.deepEqual(clean.visible[0].controls, []);
+  assert.deepEqual(clean.visible[1].controls.map((control) => control.key), ['limit']);
+  assert.deepEqual(clean.visible.map((row) => row.controlLayout), ['none', 'single']);
+  assert.deepEqual(clean.availableGroups.map((group) => [group.source, group.items.map((item) => item.id)]), [['truenas', ['pool_capacity']]]);
+  assert.equal(clean.actionBarHidden, true);
+  assert.equal(layoutPresentation(saved, {...saved, width: 500}, catalog, sources).actionBarHidden, false);
+});
+
 test('exact desktop preview is detached while hidden and refreshed when visible', () => {
-  const iframe = {src: ''};
+  const iframe = {src: '', style: {}, parentElement: {clientWidth: 388, style: {}}};
   let visible = true;
   let listener = () => {};
   const environment = {
     isVisible: () => visible,
     onVisibilityChange: (callback) => { listener = callback; return () => { listener = () => {}; }; },
+    onPanelSize: () => () => {},
   };
   const preview = createPreviewController(iframe, environment);
   preview.start();
@@ -78,4 +92,23 @@ test('exact desktop preview is detached while hidden and refreshed when visible'
   assert.notEqual(iframe.src, first);
   preview.stop();
   assert.equal(iframe.src, 'about:blank');
+});
+
+test('preview stage follows reported panel height with bounded padding', () => {
+  const stage = {clientWidth: 388, style: {}};
+  const iframe = {src: '', style: {}, parentElement: stage};
+  let reportSize = () => {};
+  const environment = {
+    isVisible: () => true,
+    onVisibilityChange: () => () => {},
+    onPanelSize: (_iframe, callback) => { reportSize = callback; return () => { reportSize = () => {}; }; },
+  };
+  const preview = createPreviewController(iframe, environment);
+  preview.start();
+  reportSize({width: 360, height: 244});
+  assert.equal(iframe.style.height, '244px');
+  assert.equal(stage.style.height, '280px');
+  reportSize({width: 360, height: 420});
+  assert.equal(stage.style.height, '456px');
+  preview.stop();
 });

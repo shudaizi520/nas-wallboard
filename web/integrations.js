@@ -1,7 +1,44 @@
+import {createSettingsSection} from './manage-ui.js';
+
 export const MASKED_SECRET = '********';
 
 export function orderedCatalog(catalog = []) {
   return [...catalog].sort((a, b) => a.metadata.category.localeCompare(b.metadata.category, 'zh-CN') || a.metadata.name.localeCompare(b.metadata.name, 'zh-CN') || a.id.localeCompare(b.id));
+}
+
+export function partitionFields(fields = []) {
+  return fields.reduce((groups, field) => {
+    groups[field.advanced ? 'advanced' : 'common'].push(field);
+    return groups;
+  }, {common: [], advanced: []});
+}
+
+function integrationEndpoint(definition, instance) {
+  if (!instance) return '未配置';
+  const urlField = definition.fields?.find((field) => field.kind === 'url');
+  return (urlField && instance.config?.[urlField.key]) || '已配置';
+}
+
+export function integrationRows(state = {}) {
+  const instances = new Map((state.instances ?? []).map((item) => [item.type, item]));
+  return orderedCatalog(state.catalog).map((definition) => {
+    const instance = instances.get(definition.id);
+    const health = (state.health ?? []).find((item) => item.instance_id === instance?.id);
+    const required = Boolean(definition.metadata.required);
+    const actions = ['configure'];
+    if (instance && !required) actions.push(instance.enabled ? 'disable' : 'enable', 'remove');
+    const tone = !instance || !instance.enabled ? 'neutral' : health?.healthy === false ? 'bad' : 'good';
+    return {
+      id: definition.id,
+      name: definition.metadata.name,
+      description: definition.metadata.description || '',
+      configured: integrationEndpoint(definition, instance),
+      error: instance?.enabled && health?.healthy === false ? (health.message || '连接异常') : '',
+      enabled: !instance ? '未启用' : instance.enabled ? '已启用' : '已停用',
+      tone,
+      actions,
+    };
+  });
 }
 
 export function validateField(field, value) {
@@ -37,6 +74,28 @@ export function candidateFromForm(definition, form, instance) {
   return {candidate: {type: definition.id, config, secrets}, errors};
 }
 
+const pendingRows = new WeakSet();
+
+export async function runIntegrationRowAction({buttons, status, task, reload}) {
+  if (pendingRows.has(status)) return false;
+  pendingRows.add(status);
+  for (const button of buttons) button.disabled = true;
+  status.textContent = '正在处理…';
+  status.dataset.tone = 'neutral';
+  try {
+    await task();
+    await reload();
+    return true;
+  } catch {
+    status.textContent = '操作失败，请重试';
+    status.dataset.tone = 'bad';
+    return false;
+  } finally {
+    pendingRows.delete(status);
+    for (const button of buttons) button.disabled = false;
+  }
+}
+
 function controlFor(field, instance) {
   const wrapper = document.createElement('label');
   wrapper.className = 'integration-field';
@@ -57,8 +116,8 @@ function controlFor(field, instance) {
   if (field.kind === 'boolean') control.checked = Boolean(stored);
   else if (field.kind === 'secret' && instance?.secrets?.[field.key]) control.value = MASKED_SECRET;
   else if (stored != null) control.value = stored;
-  const help = document.createElement('small'); help.textContent = field.help;
-  const error = document.createElement('small'); error.className = 'field-error'; error.dataset.error = field.key;
+  const help = document.createElement('small'); help.className = 'integration-help'; help.textContent = field.help || '';
+  const error = document.createElement('span'); error.className = 'field-error'; error.dataset.error = field.key;
   wrapper.append(title, control, help, error);
   return wrapper;
 }
@@ -70,22 +129,41 @@ export function createIntegrationCenter(root, api) {
   const form = dialog.querySelector('form');
   const render = () => {
     const instances = new Map(state.instances.map((item) => [item.type, item]));
-    root.replaceChildren(...orderedCatalog(state.catalog).map((definition) => {
+    const definitions = new Map(state.catalog.map((item) => [item.id, item]));
+    root.replaceChildren(...integrationRows(state).map((row) => {
+      const definition = definitions.get(row.id);
       const instance = instances.get(definition.id);
-      const health = state.health.find((item) => item.instance_id === instance?.id);
-      const card = document.createElement('article'); card.className = 'integration-card'; card.dataset.integration = definition.id;
-      const badge = instance ? (!instance.enabled ? '已停用' : health?.healthy === false ? '异常' : '已配置') : definition.detected ? '已发现' : '可添加';
-      card.innerHTML = `<div class="integration-icon">${definition.metadata.icon.slice(0, 1).toUpperCase()}</div><div class="integration-copy"><div><h3></h3><span class="integration-badge"></span></div><p></p></div>`;
-      card.querySelector('h3').textContent = definition.metadata.name;
-      card.querySelector('p').textContent = definition.metadata.description;
-      card.querySelector('.integration-badge').textContent = badge;
-      const actions = document.createElement('div'); actions.className = 'integration-actions';
-      const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = instance ? '设置' : '添加'; edit.addEventListener('click', () => open(definition, instance)); actions.append(edit);
-      if (instance && !definition.metadata.required) {
-        const toggle = document.createElement('button'); toggle.type = 'button'; toggle.textContent = instance.enabled ? '停用' : '启用'; toggle.addEventListener('click', async () => { await api.action(instance.id, instance.enabled ? 'disable' : 'enable'); await load(); }); actions.append(toggle);
-        const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '删除'; remove.addEventListener('click', async () => { if (!window.confirm(`确定删除“${definition.metadata.name}”吗？`)) return; await api.remove(instance.id); await load(); }); actions.append(remove);
+      const main = document.createElement('div'); main.className = 'integration-status';
+      const endpoint = document.createElement('strong'); endpoint.className = 'integration-endpoint'; endpoint.textContent = row.configured;
+      main.append(endpoint);
+      if (row.error) {
+        const detail = document.createElement('p'); detail.className = 'exception-message'; detail.textContent = row.error;
+        main.append(detail);
       }
-      card.append(actions); return card;
+      const actionStatus = document.createElement('p'); actionStatus.className = 'integration-action-status'; actionStatus.setAttribute('role', 'status'); actionStatus.setAttribute('aria-live', 'polite');
+      main.append(actionStatus);
+      const aside = document.createElement('div'); aside.className = 'integration-secondary';
+      const stateLabel = document.createElement('strong'); stateLabel.textContent = row.enabled; stateLabel.dataset.tone = row.tone;
+      const actions = document.createElement('div'); actions.className = 'section-actions';
+      for (const action of row.actions) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = action === 'configure' ? 'secondary-button' : '';
+        button.textContent = action === 'configure' ? (instance ? '设置' : '添加') : action === 'disable' ? '停用' : action === 'enable' ? '启用' : '删除';
+        if (action === 'configure') button.addEventListener('click', () => open(definition, instance));
+        if (action === 'disable' || action === 'enable') button.addEventListener('click', () => {
+          void runIntegrationRowAction({buttons: [...actions.querySelectorAll('button')], status: actionStatus, task: () => api.action(instance.id, action), reload: load});
+        });
+        if (action === 'remove') button.addEventListener('click', () => {
+          if (!window.confirm(`确定删除“${definition.metadata.name}”吗？`)) return;
+          void runIntegrationRowAction({buttons: [...actions.querySelectorAll('button')], status: actionStatus, task: () => api.remove(instance.id), reload: load});
+        });
+        actions.append(button);
+      }
+      aside.append(stateLabel, actions);
+      const section = createSettingsSection(document, {className: 'integration-row', title: row.name, description: row.description, main, aside});
+      section.dataset.integration = row.id;
+      return section;
     }));
   };
   const load = async () => { state = await api.integrations(); render(); };
@@ -94,8 +172,16 @@ export function createIntegrationCenter(root, api) {
     controller?.abort(); controller = new AbortController();
     form.replaceChildren();
     const heading = document.createElement('h2'); heading.textContent = definition.metadata.name;
-    const intro = document.createElement('p'); intro.className = 'dialog-intro'; intro.textContent = definition.metadata.description;
-    form.append(heading, intro, ...definition.fields.map((field) => controlFor(field, instance)));
+    const description = document.createElement('p'); description.className = 'integration-description'; description.textContent = definition.metadata.description;
+    const fields = partitionFields(definition.fields);
+    form.append(heading, description, ...fields.common.map((field) => controlFor(field, instance)));
+    if (fields.advanced.length) {
+      const advanced = document.createElement('details'); advanced.className = 'integration-advanced';
+      const summary = document.createElement('summary'); summary.textContent = '高级设置';
+      const body = document.createElement('div'); body.className = 'integration-advanced-fields';
+      body.append(...fields.advanced.map((field) => controlFor(field, instance)));
+      advanced.append(summary, body); form.append(advanced);
+    }
     const result = document.createElement('p'); result.className = 'probe-result'; result.setAttribute('role', 'status');
     const buttons = document.createElement('div'); buttons.className = 'dialog-actions';
     const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = '取消'; cancel.addEventListener('click', close);
@@ -104,7 +190,7 @@ export function createIntegrationCenter(root, api) {
     buttons.append(cancel, probe, save); form.append(result, buttons);
     const read = () => { const value = candidateFromForm(definition, form, instance); form.querySelectorAll('[data-error]').forEach((node) => { node.textContent = value.errors[node.dataset.error] ?? ''; }); return value; };
     probe.addEventListener('click', async () => { const {candidate, errors} = read(); if (Object.keys(errors).length) return; probe.disabled = true; result.textContent = '正在测试连接…'; try { const response = await api.probe(candidate, controller.signal); result.textContent = response.message || '连接成功'; } catch (error) { if (error.name !== 'AbortError') result.textContent = error.data?.probe?.message || (error.code === 'probe_failed' ? '连接测试失败' : '无法完成测试'); } finally { probe.disabled = false; } });
-    form.addEventListener('submit', async (event) => { event.preventDefault(); const {candidate, errors} = read(); if (Object.keys(errors).length) return; save.disabled = true; try { if (instance) await api.update(instance.id, candidate); else await api.create(candidate); close(); await load(); } catch (error) { result.textContent = error.data?.probe?.message || (error.code === 'probe_failed' ? '连接测试失败，未保存' : '保存失败，请检查字段'); save.disabled = false; } });
+    form.onsubmit = async (event) => { event.preventDefault(); const {candidate, errors} = read(); if (Object.keys(errors).length) return; save.disabled = true; try { if (instance) await api.update(instance.id, candidate); else await api.create(candidate); close(); await load(); } catch (error) { result.textContent = error.data?.probe?.message || (error.code === 'probe_failed' ? '连接测试失败，未保存' : '保存失败，请检查字段'); save.disabled = false; } };
     dialog.showModal();
   };
   dialog.addEventListener('cancel', (event) => { event.preventDefault(); close(); });

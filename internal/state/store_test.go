@@ -18,6 +18,7 @@ func testStore(now *time.Time) *Store {
 		Disks:      time.Minute,
 		Weather:    15 * time.Minute,
 		Home:       30 * time.Second,
+		HomePower:  15 * time.Second,
 		Downloads:  15 * time.Second,
 		Plex:       15 * time.Second,
 		Jellyfin:   15 * time.Second,
@@ -25,6 +26,28 @@ func testStore(now *time.Time) *Store {
 		DiskHealth: 30 * time.Minute,
 	}
 	return New("test-version", intervals, func() time.Time { return *now })
+}
+
+func TestStoreCachesHomeAssistantPowerIndependently(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	store := testStore(&now)
+	store.SetHomePower(model.PowerStatus{Available: true, Watts: 38}, nil)
+	updated := now
+
+	now = now.Add(10 * time.Second)
+	store.SetHomePower(model.PowerStatus{Watts: 999}, errors.New("upstream failed"))
+	snapshot := store.Snapshot()
+	if snapshot.HomePower.Data.Watts != 38 || !snapshot.HomePower.Data.Available {
+		t.Fatalf("power last-good data = %#v", snapshot.HomePower)
+	}
+	if snapshot.HomePower.Error != "unavailable" || !snapshot.HomePower.UpdatedAt.Equal(updated) || snapshot.HomePower.Stale {
+		t.Fatalf("power module = %#v", snapshot.HomePower)
+	}
+
+	now = updated.Add(45*time.Second + time.Nanosecond)
+	if !store.Snapshot().HomePower.Stale {
+		t.Fatal("power module must become stale after three configured intervals")
+	}
 }
 
 func TestStoreCachesHomeAssistantFanIndependently(t *testing.T) {
@@ -43,8 +66,8 @@ func TestStoreCachesHomeAssistantFanIndependently(t *testing.T) {
 	now = now.Add(10 * time.Second)
 	store.SetHome(model.FanStatus{State: "off"}, errors.New("upstream body with bearer secret"))
 	snapshot := store.Snapshot()
-	if model.SchemaVersion != 5 {
-		t.Fatalf("SchemaVersion = %d, want 5", model.SchemaVersion)
+	if model.SchemaVersion != 6 {
+		t.Fatalf("SchemaVersion = %d, want 6", model.SchemaVersion)
 	}
 	if snapshot.Home.Data.State != "on" || snapshot.Home.Data.OnSince == nil || !snapshot.Home.Data.OnSince.Equal(onSince) || snapshot.Home.Data.Percentage == nil || *snapshot.Home.Data.Percentage != 42 {
 		t.Fatalf("home last-good data = %#v", snapshot.Home)
@@ -133,7 +156,7 @@ func TestStoreSnapshotCannotMutateStoreState(t *testing.T) {
 	store.SetPlex(model.MediaStatus{Sessions: []model.MediaSession{{Title: "plex"}}}, nil)
 	store.SetJellyfin(model.MediaStatus{Sessions: []model.MediaSession{{Title: "jellyfin"}}}, nil)
 	store.SetMonitors(model.MonitorStatus{DownNames: []string{"site"}}, nil)
-	store.SetWeather(model.WeatherStatus{Warnings: []model.WeatherWarning{{Title: "暴雨"}}}, nil)
+	store.SetWeather(model.WeatherStatus{Warnings: []model.WeatherWarning{{Title: "暴雨"}}, Forecasts: []model.WeatherForecast{{Condition: "多云"}}}, nil)
 	store.SetDiskHealth([]model.DiskHealthStatus{{Name: "sda", State: "healthy"}}, nil)
 
 	first := store.Snapshot()
@@ -146,9 +169,10 @@ func TestStoreSnapshotCannotMutateStoreState(t *testing.T) {
 	first.Jellyfin.Data.Sessions[0].Title = "mutated"
 	first.Monitors.Data.DownNames[0] = "mutated"
 	first.Weather.Data.Warnings[0].Title = "mutated"
+	first.Weather.Data.Forecasts[0].Condition = "mutated"
 	first.DiskHealth.Data[0].State = "failed"
 	second := store.Snapshot()
-	if second.Pools.Data[0].Name != "tank" || second.Disks.Data[0].Name != "sda" || second.Apps.Data[0].Name != "plex" || second.Alerts.Data[0].Title != "safe" || second.Downloads.Data.Items[0].Name != "download" || second.Plex.Data.Sessions[0].Title != "plex" || second.Jellyfin.Data.Sessions[0].Title != "jellyfin" || second.Monitors.Data.DownNames[0] != "site" || second.Weather.Data.Warnings[0].Title != "暴雨" || second.DiskHealth.Data[0].State != "healthy" {
+	if second.Pools.Data[0].Name != "tank" || second.Disks.Data[0].Name != "sda" || second.Apps.Data[0].Name != "plex" || second.Alerts.Data[0].Title != "safe" || second.Downloads.Data.Items[0].Name != "download" || second.Plex.Data.Sessions[0].Title != "plex" || second.Jellyfin.Data.Sessions[0].Title != "jellyfin" || second.Monitors.Data.DownNames[0] != "site" || second.Weather.Data.Warnings[0].Title != "暴雨" || second.Weather.Data.Forecasts[0].Condition != "多云" || second.DiskHealth.Data[0].State != "healthy" {
 		t.Fatalf("snapshot mutated store: %#v", second)
 	}
 }

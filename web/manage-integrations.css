@@ -1,0 +1,43 @@
+.integration-row .section-label { padding-top: 4px; }
+.integration-row .section-content {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
+  align-items: center;
+  gap: 18px;
+}
+.integration-status, .integration-secondary { display: grid; min-width: 0; gap: 4px; }
+.integration-status strong, .integration-secondary strong { color: var(--text); font-size: 13px; font-weight: 540; overflow-wrap: anywhere; }
+.integration-status strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.integration-action-status { min-height: 18px; margin: 0; color: var(--muted); font-size: 12px; }
+.integration-action-status:empty { display: none; }
+.integration-action-status[data-tone="bad"] { color: var(--danger); }
+.integration-secondary { grid-template-columns: auto auto; align-items: center; justify-content: end; gap: 14px; }
+.integration-secondary > strong { color: var(--muted); white-space: nowrap; }
+.integration-secondary .section-actions { flex-wrap: nowrap; justify-content: flex-end; }
+.integration-secondary button {
+  min-height: var(--compact-button-height);
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: #dbe2e1;
+  background: transparent;
+}
+.integration-secondary button:hover { background: var(--control-hover); }
+
+.integration-description { margin: -4px 0 2px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.integration-help { color: var(--quiet); font-size: 12px; font-weight: 400; line-height: 1.5; }
+.integration-help:empty { display: none; }
+.integration-advanced { border-top: 1px solid var(--line); }
+.integration-advanced summary { padding: 12px 0 0; color: #aeb9b8; font-size: 13px; cursor: pointer; user-select: none; }
+.integration-advanced-fields { display: grid; gap: 14px; padding-top: 14px; }
+
+@media (max-width: 760px) {
+  .integration-row .section-content { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .integration-secondary { justify-content: start; }
+  .integration-secondary .section-actions { justify-content: flex-start; }
+}
+
+@media (max-width: 480px) {
+  .integration-endpoint { overflow: visible !important; text-overflow: clip !important; white-space: normal !important; overflow-wrap: anywhere; }
+  .integration-secondary { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .integration-secondary .section-actions { flex-wrap: wrap; }
+}

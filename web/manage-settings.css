@@ -1,0 +1,56 @@
+.account-settings { max-width: 900px; }
+.settings-group { position: relative; }
+.settings-group + .settings-group { padding-top: 30px; }
+.settings-group + .settings-group::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: calc(var(--label-width) + var(--section-gap));
+  height: 1px;
+  background: var(--line-strong);
+  content: "";
+}
+.settings-group .settings-section:last-child::after { display: none; }
+.settings-group-heading { color: var(--text); font-size: 14px; font-weight: 560; }
+.account-settings .section-content { gap: 12px; }
+
+.operation-disclosure > summary > span { min-width: 0; overflow-wrap: anywhere; }
+.operation-disclosure-body { max-width: 640px; }
+.compact-form { display: grid; min-width: 0; gap: 12px; }
+.compact-form button { width: fit-content; }
+.compact-form .field-grid { width: 100%; }
+
+.maintenance-row .section-content {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+}
+.maintenance-row .section-main { color: var(--muted); font-size: 13px; }
+
+.danger-group .settings-group-heading,
+.danger-section .section-label h2 { color: var(--danger); }
+.danger-group .operation-disclosure > summary { color: #f2c8cc; }
+.danger-note { margin: 0; color: var(--danger); font-size: 12px; line-height: 1.5; }
+
+.settings-message {
+  position: sticky;
+  bottom: 12px;
+  z-index: 4;
+  width: fit-content;
+  min-height: 0;
+  margin: 14px 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--good);
+  background: var(--surface-raised);
+  font-size: 12px;
+}
+.settings-message:empty { display: none; }
+
+@media (max-width: 680px) {
+  .settings-group + .settings-group::before { left: 0; }
+  .settings-group-heading { margin-bottom: 4px; }
+  .maintenance-row .section-content { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .operation-disclosure-body { max-width: none; }
+}

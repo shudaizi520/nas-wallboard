@@ -20,6 +20,7 @@ export class ManageAPI {
   updateStatus() { return this.request('/api/manage/update'); }
   reauthenticate(password) { return this.request('/api/manage/reauth', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password})}); }
   changePassword(current, replacement) { return this.request('/api/manage/password', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({current, replacement})}); }
+  changeUsername(currentPassword, username) { return this.request('/api/manage/username', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({current_password: currentPassword, username})}); }
   factoryReset(confirmation, token) { return this.request('/api/manage/reset', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Reauth-Token': token}, body: JSON.stringify({confirmation})}); }
   async backup(password, token) {
     const response = await this.fetcher('/api/manage/backup', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': this.csrf, 'X-Reauth-Token': token}, body: JSON.stringify({password})});

@@ -77,6 +77,29 @@ func TestBuilderFormatsCompactNASUptime(t *testing.T) {
 	}
 }
 
+func TestBuilderAppendsFreshHomeAssistantPowerToNASHeader(t *testing.T) {
+	builder, err := New(config.DashboardConfig{Width: 460})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := model.Snapshot{
+		System:    model.Module[model.SystemStatus]{Data: model.SystemStatus{UptimeSeconds: 5*24*60*60 + 6*60*60}},
+		HomePower: model.Module[model.PowerStatus]{Data: model.PowerStatus{Available: true, Watts: 38.4}},
+	}
+	if got := builder.Build(base, time.Unix(100, 0)).NASPower; got != "38W" {
+		t.Fatalf("NASPower = %q, want 38W", got)
+	}
+	base.HomePower.Stale = true
+	if got := builder.Build(base, time.Unix(100, 0)).NASPower; got != "" {
+		t.Fatalf("stale NASPower = %q, want hidden", got)
+	}
+	base.HomePower.Stale = false
+	base.HomePower.Error = "timeout"
+	if got := builder.Build(base, time.Unix(100, 0)).NASPower; got != "" {
+		t.Fatalf("failed NASPower = %q, want hidden", got)
+	}
+}
+
 func TestBuilderShowsNetworkDiskHealthAndWeather(t *testing.T) {
 	match := config.DiskMatchConfig{Model: "ST14000NM001G-2KJ103", SizeBytes: 14000519643136}
 	builder, err := New(config.DashboardConfig{
@@ -108,7 +131,7 @@ func TestBuilderShowsNetworkDiskHealthAndWeather(t *testing.T) {
 	if !equalMetrics(view.Metrics, wantMetrics) {
 		t.Fatalf("metrics = %#v, want %#v", view.Metrics, wantMetrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "深圳 · 两小时无雨"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "两小时无雨"}
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
 	}
@@ -147,9 +170,133 @@ func TestBuilderHighlightsSMARTFailureAndWeatherWarning(t *testing.T) {
 	if len(view.Metrics) != 1 || view.Metrics[0] != (Metric{ID: "disk_temperature", Icon: "disk", Value: "42° · SMART", Tone: "bad"}) {
 		t.Fatalf("metrics = %#v", view.Metrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", Value: "31° · 雷阵雨", Detail: "深圳 · 高温黄色预警"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", Value: "31° · 雷阵雨", Detail: "高温黄色预警"}
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
+	}
+}
+
+func TestWeatherWarningSummaryKeepsTheRowCompact(t *testing.T) {
+	tests := []struct {
+		name     string
+		warnings []model.WeatherWarning
+		want     Activity
+	}{
+		{
+			name: "released warning becomes a neutral compact status",
+			warnings: []model.WeatherWarning{{
+				Title: "深圳市气象台解除高温黄色预警", Severity: "severe", Color: "yellow",
+			}},
+			want: Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "高温预警已解除"},
+		},
+		{
+			name: "highest severity warning wins and reports the remainder",
+			warnings: []model.WeatherWarning{
+				{Title: "深圳市气象台发布雷电蓝色预警", Severity: "minor", Color: "blue"},
+				{Title: "深圳市气象台发布暴雨橙色预警", Severity: "severe", Color: "orange"},
+			},
+			want: Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "29° · 多云", Detail: "暴雨橙色预警 +1"},
+		},
+		{
+			name: "red warning takes priority over orange warning",
+			warnings: []model.WeatherWarning{
+				{Title: "深圳市气象台发布暴雨橙色预警", Severity: "severe", Color: "orange"},
+				{Title: "深圳市气象台发布台风红色预警", Severity: "severe", Color: "red"},
+			},
+			want: Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "29° · 多云", Detail: "台风红色预警 +1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := weatherActivity(model.Module[model.WeatherStatus]{Data: model.WeatherStatus{
+				Enabled: true, Name: "平湖", Temperature: 29, Condition: "多云", ConditionCode: "101", RainSummary: "未来两小时无降水", Warnings: tt.warnings,
+			}})
+			if !ok || got != tt.want {
+				t.Fatalf("weather activity = %#v, %v; want %#v, true", got, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestWeatherActivitiesAppendTwoUnlabelledForecastRows(t *testing.T) {
+	got := weatherActivities(model.Module[model.WeatherStatus]{Data: model.WeatherStatus{
+		Enabled: true, Name: "平湖", Temperature: 29, Condition: "少云", ConditionCode: "102", RainSummary: "未来两小时无降水",
+		Forecasts: []model.WeatherForecast{
+			{Condition: "", ConditionCode: "100", TemperatureMin: 20, TemperatureMax: 30},
+			{Condition: "多云", ConditionCode: "101", TemperatureMin: 26, TemperatureMax: 33, PrecipitationProbability: 0.35},
+			{Condition: "阵雨", ConditionCode: "300", TemperatureMin: 25, TemperatureMax: 31, PrecipitationProbability: 0.8},
+			{Condition: "雷阵雨", ConditionCode: "302", TemperatureMin: 24, TemperatureMax: 30},
+		},
+	}})
+	want := []Activity{
+		{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 少云", Detail: "两小时无雨"},
+		{ID: "weather:forecast:0", Icon: "weather-cloudy", Tone: "neutral", Value: "多云", Detail: "26°–33° · 雨35%"},
+		{ID: "weather:forecast:1", Icon: "weather-rain", Tone: "neutral", Value: "阵雨", Detail: "25°–31° · 雨80%"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("weather activities = %#v, want %#v", got, want)
+	}
+}
+
+func TestDiskMetricHealthRequiresAuthoritativeDiskMatch(t *testing.T) {
+	disk := model.DiskStatus{
+		Name:        "sda",
+		Model:       "ST14000NM001G-2KJ103",
+		SizeBytes:   14000519643136,
+		Temperature: 40,
+	}
+	disks := model.Module[[]model.DiskStatus]{Data: []model.DiskStatus{disk}}
+	match := config.DiskMatchConfig{Model: disk.Model, SizeBytes: disk.SizeBytes}
+	updated := time.Unix(50, 0)
+	tests := []struct {
+		name   string
+		health model.Module[[]model.DiskHealthStatus]
+		want   Metric
+	}{
+		{
+			name:   "empty successful health",
+			health: model.Module[[]model.DiskHealthStatus]{UpdatedAt: updated},
+			want:   Metric{ID: "disk_temperature", Icon: "disk", Value: "40°", Tone: "neutral"},
+		},
+		{
+			name:   "stale health",
+			health: model.Module[[]model.DiskHealthStatus]{UpdatedAt: updated, Stale: true, Data: []model.DiskHealthStatus{{Name: disk.Name, Model: disk.Model, SizeBytes: disk.SizeBytes, State: "failed"}}},
+			want:   Metric{ID: "disk_temperature", Icon: "disk", Value: "40°", Tone: "neutral"},
+		},
+		{
+			name:   "anonymous failed alert",
+			health: model.Module[[]model.DiskHealthStatus]{UpdatedAt: updated, Data: []model.DiskHealthStatus{{Name: "SMART 告警", State: "failed"}}},
+			want:   Metric{ID: "disk_temperature", Icon: "disk", Value: "40°", Tone: "neutral"},
+		},
+		{
+			name:   "unmatched health",
+			health: model.Module[[]model.DiskHealthStatus]{UpdatedAt: updated, Data: []model.DiskHealthStatus{{Name: "sdb", Model: "OTHER", SizeBytes: 1000, State: "failed"}}},
+			want:   Metric{ID: "disk_temperature", Icon: "disk", Value: "40°", Tone: "neutral"},
+		},
+		{
+			name:   "unrecognized matched state",
+			health: model.Module[[]model.DiskHealthStatus]{UpdatedAt: updated, Data: []model.DiskHealthStatus{{Name: disk.Name, Model: disk.Model, SizeBytes: disk.SizeBytes, State: "unknown"}}},
+			want:   Metric{ID: "disk_temperature", Icon: "disk", Value: "40°", Tone: "neutral"},
+		},
+		{
+			name:   "matched failed health",
+			health: model.Module[[]model.DiskHealthStatus]{UpdatedAt: updated, Data: []model.DiskHealthStatus{{Name: disk.Name, Model: disk.Model, SizeBytes: disk.SizeBytes, State: "failed"}}},
+			want:   Metric{ID: "disk_temperature", Icon: "disk", Value: "40° · SMART", Tone: "bad"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := diskMetric(disks, tt.health, match, false); got != tt.want {
+				t.Fatalf("diskMetric() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+
+	anonymousDisk := model.DiskStatus{Name: "sda", Temperature: 40}
+	anonymousHealth := model.Module[[]model.DiskHealthStatus]{Data: []model.DiskHealthStatus{{Name: "SMART 告警", State: "failed"}}}
+	if state, matched := selectedDiskHealth(anonymousHealth, anonymousDisk); matched || state != "" {
+		t.Fatalf("anonymous disk health matched as %q", state)
 	}
 }
 
@@ -233,7 +380,7 @@ func TestBuilderFanHidesOffAndWarnsAfterThreshold(t *testing.T) {
 		Percentage: &percentage, PresetMode: "nature", Oscillating: &oscillating, RemindAfterSeconds: 7200,
 	}}}
 	got := builder.Build(on, time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)).Activities
-	want := Activity{ID: "fan", Icon: "fan", Tone: "warn", Title: "客厅风扇", Value: "2小时30分", Detail: "42% · nature · 摇头"}
+	want := Activity{ID: "fan", Icon: "fan", Tone: "warn", Title: "客厅风扇", Value: "42% · nature"}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("on fan = %#v, want %#v", got, want)
 	}
@@ -294,12 +441,26 @@ func TestBuilderShowsActiveDownloadsAndHidesIdle(t *testing.T) {
 	active := model.Snapshot{Downloads: model.Module[model.DownloadStatus]{Data: model.DownloadStatus{
 		ActiveCount: 2,
 		DownloadBps: 12_500_000,
-		Items:       []model.DownloadItem{{Name: "Ubuntu.iso", ProgressPercent: 68.4, DownloadBps: 12_500_000}},
+		Items: []model.DownloadItem{
+			{Name: "Ubuntu.iso", ProgressPercent: 68.4, DownloadBps: 12_500_000},
+			{Name: "Queued.iso", ProgressPercent: 20, DownloadBps: 0},
+		},
 	}}}
 	got := builder.Build(active, time.Time{}).Activities
-	want := Activity{ID: "downloads", Icon: "download", Tone: "active", Title: "下载", Value: "2 个 · 12.5 MB/s", Detail: "Ubuntu.iso · 68%"}
-	if len(got) != 1 || got[0] != want {
-		t.Fatalf("downloads = %#v, want %#v", got, want)
+	if len(got) != 1 {
+		t.Fatalf("downloads = %#v, want one grouped activity", got)
+	}
+	encoded, err := json.Marshal(got[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	wantProgress := []any{float64(68), float64(20)}
+	if payload["detail"] != "" || !reflect.DeepEqual(payload["progress"], wantProgress) {
+		t.Fatalf("download activity = %s, want no filename and progress %#v", encoded, wantProgress)
 	}
 }
 
@@ -328,7 +489,7 @@ func TestBuilderShowsPlaybackAndHidesIdleMedia(t *testing.T) {
 		Jellyfin: model.Module[model.MediaStatus]{Data: model.MediaStatus{}},
 	}
 	got := builder.Build(snapshot, time.Time{}).Activities
-	want := Activity{ID: "plex", Icon: "play", Tone: "active", Title: "Plex", Value: "暂停", Detail: "剧集 · 第一集 · 客厅电视"}
+	want := Activity{ID: "plex", Icon: "play", Tone: "active", Title: "Plex", Value: "剧集 · 第一集", Detail: "暂停 · 客厅电视"}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("media activities = %#v, want %#v", got, want)
 	}
@@ -346,8 +507,8 @@ func TestBuilderShowsEachMediaSessionInItsOwnActivity(t *testing.T) {
 
 	got := builder.Build(snapshot, time.Time{}).Activities
 	want := []Activity{
-		{ID: "plex:0", Icon: "play", Tone: "active", Title: "Plex", Value: "播放", Detail: "电影 · 客厅电视"},
-		{ID: "plex:1", Icon: "play", Tone: "active", Title: "Plex", Value: "暂停", Detail: "音乐 · 卧室音箱"},
+		{ID: "plex:0", Icon: "play", Tone: "active", Title: "Plex", Value: "电影", Detail: "播放 · 客厅电视"},
+		{ID: "plex:1", Icon: "play", Tone: "active", Title: "Plex", Value: "音乐", Detail: "暂停 · 卧室音箱"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("media activities = %#v, want %#v", got, want)
@@ -440,8 +601,8 @@ func TestBuilderKeepsMediaSourceFailuresIndependent(t *testing.T) {
 	got := builder.Build(snapshot, time.Time{}).Activities
 	want := []Activity{
 		{ID: "plex-unavailable", Icon: "play", Tone: "bad", Title: "Plex", Value: "不可用"},
-		{ID: "jellyfin:0", Icon: "play", Tone: "active", Title: "Jellyfin", Value: "播放", Detail: "电影 · 网页"},
-		{ID: "jellyfin:1", Icon: "play", Tone: "active", Title: "Jellyfin", Value: "播放", Detail: "剧集 · 电视"},
+		{ID: "jellyfin:0", Icon: "play", Tone: "active", Title: "Jellyfin", Value: "电影", Detail: "播放 · 网页"},
+		{ID: "jellyfin:1", Icon: "play", Tone: "active", Title: "Jellyfin", Value: "剧集", Detail: "播放 · 电视"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("media activities = %#v", got)

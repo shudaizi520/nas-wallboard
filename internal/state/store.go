@@ -19,6 +19,7 @@ type StaleAfter struct {
 	Disks       time.Duration
 	Weather     time.Duration
 	Home        time.Duration
+	HomePower   time.Duration
 	Downloads   time.Duration
 	Plex        time.Duration
 	Jellyfin    time.Duration
@@ -43,6 +44,7 @@ type Store struct {
 	alerts      model.Module[[]model.AlertStatus]
 	weather     model.Module[model.WeatherStatus]
 	home        model.Module[model.FanStatus]
+	homePower   model.Module[model.PowerStatus]
 	downloads   model.Module[model.DownloadStatus]
 	plex        model.Module[model.MediaStatus]
 	jellyfin    model.Module[model.MediaStatus]
@@ -134,6 +136,12 @@ func (s *Store) SetHome(value model.FanStatus, err error) {
 	setModule(&s.home, cloneFanStatus(value), err, s.now())
 }
 
+func (s *Store) SetHomePower(value model.PowerStatus, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	setModule(&s.homePower, value, err, s.now())
+}
+
 func (s *Store) SetDownloads(value model.DownloadStatus, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -208,6 +216,7 @@ func (s *Store) Snapshot() model.Snapshot {
 		Alerts:        s.alerts,
 		Weather:       s.weather,
 		Home:          s.home,
+		HomePower:     s.homePower,
 		Downloads:     s.downloads,
 		Plex:          s.plex,
 		Jellyfin:      s.jellyfin,
@@ -238,6 +247,7 @@ func (s *Store) Snapshot() model.Snapshot {
 	snapshot.Alerts.Stale = stale(now, snapshot.Alerts.UpdatedAt, intervals.Alerts)
 	snapshot.Weather.Stale = stale(now, snapshot.Weather.UpdatedAt, intervals.Weather)
 	snapshot.Home.Stale = stale(now, snapshot.Home.UpdatedAt, intervals.Home)
+	snapshot.HomePower.Stale = stale(now, snapshot.HomePower.UpdatedAt, intervals.HomePower)
 	snapshot.Downloads.Stale = stale(now, snapshot.Downloads.UpdatedAt, intervals.Downloads)
 	snapshot.Plex.Stale = stale(now, snapshot.Plex.UpdatedAt, intervals.Plex)
 	snapshot.Jellyfin.Stale = stale(now, snapshot.Jellyfin.UpdatedAt, intervals.Jellyfin)
@@ -250,6 +260,7 @@ func (s *Store) Snapshot() model.Snapshot {
 
 func cloneWeatherStatus(value model.WeatherStatus) model.WeatherStatus {
 	value.Warnings = append([]model.WeatherWarning(nil), value.Warnings...)
+	value.Forecasts = append([]model.WeatherForecast(nil), value.Forecasts...)
 	return value
 }
 

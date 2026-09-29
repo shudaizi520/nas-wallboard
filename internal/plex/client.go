@@ -63,6 +63,7 @@ func (c *Client) Current(ctx context.Context) (model.MediaStatus, error) {
 				Title            string `json:"title"`
 				ParentTitle      string `json:"parentTitle"`
 				GrandparentTitle string `json:"grandparentTitle"`
+				ViewOffset       int64  `json:"viewOffset"`
 				Player           *struct {
 					Title    string `json:"title"`
 					Product  string `json:"product"`
@@ -72,6 +73,9 @@ func (c *Client) Current(ctx context.Context) (model.MediaStatus, error) {
 				User *struct {
 					Title string `json:"title"`
 				} `json:"User"`
+				Session *struct {
+					ID string `json:"id"`
+				} `json:"Session"`
 			} `json:"Metadata"`
 		} `json:"MediaContainer"`
 	}
@@ -91,9 +95,13 @@ func (c *Client) Current(ctx context.Context) (model.MediaStatus, error) {
 		if item.User != nil {
 			user = strings.TrimSpace(item.User.Title)
 		}
+		sessionID := ""
+		if item.Session != nil {
+			sessionID = strings.TrimSpace(item.Session.ID)
+		}
 		result.Sessions = append(result.Sessions, model.MediaSession{
 			Title: title, Device: first(item.Player.Title, item.Player.Product, item.Player.Platform), User: user,
-			Paused: strings.EqualFold(item.Player.State, "paused"),
+			Paused: strings.EqualFold(item.Player.State, "paused"), SessionID: sessionID, ProgressMillis: item.ViewOffset,
 		})
 	}
 	return result, nil

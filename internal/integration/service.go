@@ -56,15 +56,17 @@ type CatalogEntry struct {
 type ServiceOptions struct {
 	ProbeTimeout time.Duration
 	OnChange     func(context.Context, []persist.Integration, []persist.Integration) error
+	Initialize   func(*persist.State, persist.Integration) error
 }
 
 type Service struct {
-	mu       sync.Mutex
-	registry *Registry
-	state    *persist.Store
-	secrets  *persist.SecretStore
-	timeout  time.Duration
-	onChange func(context.Context, []persist.Integration, []persist.Integration) error
+	mu         sync.Mutex
+	registry   *Registry
+	state      *persist.Store
+	secrets    *persist.SecretStore
+	timeout    time.Duration
+	onChange   func(context.Context, []persist.Integration, []persist.Integration) error
+	initialize func(*persist.State, persist.Integration) error
 }
 
 func NewService(registry *Registry, state *persist.Store, secrets *persist.SecretStore, options ServiceOptions) *Service {
@@ -72,7 +74,7 @@ func NewService(registry *Registry, state *persist.Store, secrets *persist.Secre
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return &Service{registry: registry, state: state, secrets: secrets, timeout: timeout, onChange: options.OnChange}
+	return &Service{registry: registry, state: state, secrets: secrets, timeout: timeout, onChange: options.OnChange, initialize: options.Initialize}
 }
 
 func (service *Service) Catalog(discovery Discovery) []CatalogEntry {
@@ -270,6 +272,9 @@ func (service *Service) saveCandidate(ctx context.Context, definition Definition
 	if err := service.state.Update(func(state *persist.State) error {
 		if current == nil {
 			state.Integrations = append(state.Integrations, next)
+			if service.initialize != nil {
+				return service.initialize(state, next)
+			}
 			return nil
 		}
 		for index := range state.Integrations {

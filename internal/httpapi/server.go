@@ -108,6 +108,7 @@ func New(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("/api/manage/reauth", s.manageReauthenticate)
 	mux.HandleFunc("/api/manage/backup", s.manageBackup)
 	mux.HandleFunc("/api/manage/password", s.managePassword)
+	mux.HandleFunc("/api/manage/username", s.manageUsername)
 	mux.HandleFunc("/api/manage/reset", s.manageReset)
 	mux.HandleFunc("/api/manage/update", s.manageUpdate)
 	mux.HandleFunc("/download/nas-wallboard-desktop.zip", s.desktopDownload)

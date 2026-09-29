@@ -56,7 +56,7 @@ func TestSetupStatusProbeAndCompletion(t *testing.T) {
 		t.Fatal("probe persisted candidate")
 	}
 
-	complete := `{"url":"wss://nas.local/api/current","username":"wallboard","api_key":"api-key-secret","insecure_skip_verify":true,"password":"correct horse battery staple","password_confirmation":"correct horse battery staple"}`
+	complete := `{"url":"wss://nas.local/api/current","username":"wallboard","api_key":"api-key-secret","insecure_skip_verify":true,"administrator_username":"Owner","password":"correct horse battery staple","password_confirmation":"correct horse battery staple"}`
 	completeResponse := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/setup/complete", bytes.NewBufferString(complete), map[string]string{
 		"Content-Type": "application/json", "Origin": "http://nas.local",
 	})
@@ -77,7 +77,7 @@ func TestSetupStatusProbeAndCompletion(t *testing.T) {
 	if err != nil || string(secret) != "api-key-secret" {
 		t.Fatalf("stored secret = %q / %v", secret, err)
 	}
-	if !fixture.auth.Configured() {
+	if !fixture.auth.Configured() || fixture.auth.Username() != "Owner" {
 		t.Fatal("administrator password not configured")
 	}
 	if view := fixture.builder.Build(apiTestStore().Snapshot(), time.Now()); view.Width != config.DashboardDefaultWidth || len(view.Metrics) != 3 {
@@ -144,6 +144,7 @@ func TestSetupCompletesImportedInstallationWithoutReenteringAPIKey(t *testing.T)
 	}
 	response := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/setup/complete", bytes.NewBufferString(`{
   "use_imported":true,
+	"administrator_username":"admin",
   "password":"correct horse battery staple",
   "password_confirmation":"correct horse battery staple"
 }`), map[string]string{"Content-Type": "application/json", "Origin": "http://nas.local"})
@@ -191,7 +192,7 @@ func TestRecoverPendingSetupRollsBackIncompleteTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.SetInitialPassword("correct horse battery staple"); err != nil {
+	if err := manager.SetInitialCredentials("admin", "correct horse battery staple"); err != nil {
 		t.Fatal(err)
 	}
 	journal, _ := json.Marshal(setupJournal{Version: 1, SecretRef: ref, CreatedAt: time.Now()})
@@ -236,7 +237,7 @@ func TestRecoverPendingSetupKeepsCommittedAuthenticationAndSecret(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.SetInitialPassword("correct horse battery staple"); err != nil {
+	if err := manager.SetInitialCredentials("admin", "correct horse battery staple"); err != nil {
 		t.Fatal(err)
 	}
 	journal, _ := json.Marshal(setupJournal{Version: 1, SecretRef: ref, CreatedAt: time.Now()})
