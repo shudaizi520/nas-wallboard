@@ -130,6 +130,14 @@ func (s *server) setupComplete(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	// The outer operation read lock prevents restore/reset while probes run.
+	// Serialize only setup commits; upgrading that read lock would deadlock.
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
+	if s.configState.Snapshot().SetupComplete || s.auth.Configured() {
+		writeAPIError(w, http.StatusConflict, "already_configured")
+		return
+	}
 	ref := currentRef
 	discard := func() error { return nil }
 	if !input.UseImported {

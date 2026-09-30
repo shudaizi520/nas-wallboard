@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,6 +23,7 @@ import (
 const (
 	maximumBundleBytes = 16 << 20
 	maximumBackupFile  = 2 << 20
+	maximumBackupFiles = 2048
 	ResetConfirmation  = "删除 NAS WALLBOARD"
 )
 
@@ -219,6 +221,10 @@ func buildBackupArchive(root string) ([]byte, error) {
 		if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return errors.New("unsafe backup path")
 		}
+		relative = filepath.ToSlash(relative)
+		if !allowedBackupPath(relative) {
+			return nil
+		}
 		info, err := item.Info()
 		if err != nil {
 			return err
@@ -226,7 +232,10 @@ func buildBackupArchive(root string) ([]byte, error) {
 		if info.Size() > maximumBackupFile {
 			return fmt.Errorf("backup file %s is too large", relative)
 		}
-		entries = append(entries, entry{path, filepath.ToSlash(relative)})
+		if len(entries) >= maximumBackupFiles {
+			return errors.New("too many backup files")
+		}
+		entries = append(entries, entry{path, relative})
 		return nil
 	})
 	if err != nil {
@@ -235,11 +244,17 @@ func buildBackupArchive(root string) ([]byte, error) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].relative < entries[j].relative })
 	var buffer bytes.Buffer
 	archive := zip.NewWriter(&buffer)
+	total := 0
 	for _, item := range entries {
 		data, err := persist.ReadLimited(item.absolute, maximumBackupFile)
 		if err != nil {
 			_ = archive.Close()
 			return nil, err
+		}
+		total += len(data)
+		if total > maximumBundleBytes {
+			_ = archive.Close()
+			return nil, errors.New("backup exceeds size limit")
 		}
 		writer, err := archive.Create(item.relative)
 		if err != nil {
@@ -258,7 +273,24 @@ func buildBackupArchive(root string) ([]byte, error) {
 	if err := archive.Close(); err != nil {
 		return nil, err
 	}
+	if buffer.Len() > maximumBundleBytes {
+		return nil, errors.New("backup exceeds size limit")
+	}
 	return buffer.Bytes(), nil
+}
+
+// Export and restore use the same application-owned paths. Atomic-write
+// leftovers and recovery directories are never part of a recoverable dataset.
+func allowedBackupPath(name string) bool {
+	if name == "." || name != path.Clean(name) || strings.Contains(name, "\\") || strings.HasPrefix(name, "/") || strings.HasPrefix(name, "../") {
+		return false
+	}
+	for _, part := range strings.Split(name, "/") {
+		if strings.HasPrefix(part, ".wallboard-") || (strings.HasPrefix(part, ".") && strings.HasSuffix(part, ".tmp")) {
+			return false
+		}
+	}
+	return name == "state.json" || name == "auth.json" || name == "dashboard.json" || strings.HasPrefix(name, "secrets/") || strings.HasPrefix(name, "backups/")
 }
 
 func FactoryReset(root, confirmation string) error {

@@ -34,7 +34,7 @@ func PrepareRestore(root string, plain []byte) (stage string, err error) {
 	if err != nil {
 		return "", err
 	}
-	if len(archive.File) > 2048 {
+	if len(archive.File) > maximumBackupFiles {
 		return "", errors.New("too many backup files")
 	}
 	stage, err = os.MkdirTemp(root, ".wallboard-stage-")
@@ -55,14 +55,13 @@ func PrepareRestore(root string, plain []byte) (stage string, err error) {
 			return stage, errors.New("unsafe backup entry")
 		}
 		seen[name] = true
-		allowed := name == "state.json" || name == "auth.json" || name == "dashboard.json" || strings.HasPrefix(name, "secrets/") || strings.HasPrefix(name, "backups/")
-		if !allowed {
+		if !allowedBackupPath(name) {
 			return stage, errors.New("unexpected backup entry")
 		}
-		total += file.UncompressedSize64
-		if file.UncompressedSize64 > maximumBackupFile || total > maximumBundleBytes {
+		if file.UncompressedSize64 > maximumBackupFile || file.UncompressedSize64 > maximumBundleBytes-total {
 			return stage, errors.New("backup exceeds size limit")
 		}
+		total += file.UncompressedSize64
 		if strings.HasPrefix(name, "backups/") {
 			continue
 		} // keep current local migration backups
