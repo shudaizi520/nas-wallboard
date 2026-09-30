@@ -82,9 +82,9 @@ func TestQWeatherCombinesCurrentRainWarningsAndTwoFutureDays(t *testing.T) {
 				t.Errorf("daily query = %s", request.URL.RawQuery)
 			}
 			return response(http.StatusOK, `{"days":[
-				{"daytime":{"condition":{"text":"少云","code":"102"},"precipitation":{"probability":0.1}},"temperatureMin":{"value":25},"temperatureMax":{"value":34}},
-				{"daytime":{"condition":{"text":"多云","code":"101"},"precipitation":{"probability":0.35}},"temperatureMin":{"value":26},"temperatureMax":{"value":33}},
-				{"daytime":{"condition":{"text":"阵雨","code":"300"},"precipitation":{"probability":0.8}},"temperatureMin":{"value":25},"temperatureMax":{"value":31}}
+				{"forecastStartTime":"2026-09-29T00:00+08:00","forecastEndTime":"2026-09-30T00:00+08:00","daytime":{"condition":{"text":"少云","code":"102"},"precipitation":{"probability":0.1}},"temperatureMin":{"value":25},"temperatureMax":{"value":34}},
+				{"forecastStartTime":"2026-09-30T00:00+08:00","forecastEndTime":"2026-10-01T00:00+08:00","daytime":{"condition":{"text":"多云","code":"101"},"precipitation":{"probability":0.35}},"temperatureMin":{"value":26},"temperatureMax":{"value":33}},
+				{"forecastStartTime":"2026-10-01T00:00+08:00","forecastEndTime":"2026-10-02T00:00+08:00","daytime":{"condition":{"text":"阵雨","code":"300"},"precipitation":{"probability":0.8}},"temperatureMin":{"value":25},"temperatureMax":{"value":31}}
 			]}`), nil
 		case "/v7/minutely/5m":
 			if request.URL.Query().Get("location") != "114.06,22.54" {
@@ -93,6 +93,7 @@ func TestQWeatherCombinesCurrentRainWarningsAndTwoFutureDays(t *testing.T) {
 			return response(http.StatusOK, `{
 				"code":"200",
 				"summary":"40分钟后开始下中雨，70分钟后就停了",
+				"updateTime":"2026-09-29T10:00+08:00",
 				"minutely":[
 					{"fxTime":"2026-09-29T10:00+08:00","precip":"0.0","type":"rain"},
 					{"fxTime":"2026-09-29T10:05+08:00","precip":"0.0","type":"rain"},
@@ -118,6 +119,7 @@ func TestQWeatherCombinesCurrentRainWarningsAndTwoFutureDays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.now = func() time.Time { return time.Date(2026, 9, 29, 2, 0, 0, 0, time.UTC) }
 	got, err := client.Current(context.Background())
 	if err != nil {
 		t.Fatalf("Current() error = %v", err)
@@ -135,8 +137,8 @@ func TestQWeatherCombinesCurrentRainWarningsAndTwoFutureDays(t *testing.T) {
 		t.Fatalf("warnings = %#v", got.Warnings)
 	}
 	wantForecasts := []model.WeatherForecast{
-		{Condition: "多云", ConditionCode: "101", TemperatureMin: 26, TemperatureMax: 33, PrecipitationProbability: 0.35},
-		{Condition: "阵雨", ConditionCode: "300", TemperatureMin: 25, TemperatureMax: 31, PrecipitationProbability: 0.8},
+		{StartAt: time.Date(2026, 9, 30, 0, 0, 0, 0, time.FixedZone("", 8*3600)), EndAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.FixedZone("", 8*3600)), Condition: "多云", ConditionCode: "101", TemperatureMin: 26, TemperatureMax: 33, PrecipitationProbability: 0.35},
+		{StartAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.FixedZone("", 8*3600)), EndAt: time.Date(2026, 10, 2, 0, 0, 0, 0, time.FixedZone("", 8*3600)), Condition: "阵雨", ConditionCode: "300", TemperatureMin: 25, TemperatureMax: 31, PrecipitationProbability: 0.8},
 	}
 	if !reflect.DeepEqual(got.Forecasts, wantForecasts) {
 		t.Fatalf("forecasts = %#v, want %#v", got.Forecasts, wantForecasts)
@@ -192,7 +194,12 @@ func TestSummarizeRainKeepsTraceRainAsLocalPossibility(t *testing.T) {
 		{FXTime: "2026-09-29T10:10+08:00", Precip: "0.01", Type: "rain"},
 		{FXTime: "2026-09-29T10:15+08:00", Precip: "0.0", Type: "rain"},
 	}
-	if got := summarizeRain(points); got != "局部可能有雨" {
+	now := time.Date(2026, 9, 29, 2, 0, 0, 0, time.UTC)
+	parsed, err := parseRainPoints(points, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rainSummaryAt(parsed, now); got != "局部可能有雨" {
 		t.Fatalf("summarizeRain() = %q, want trace precipitation retained without exact timing", got)
 	}
 }
@@ -203,7 +210,12 @@ func TestSummarizeRainKeepsIsolatedShowerAsLocalPossibility(t *testing.T) {
 		{FXTime: "2026-09-29T10:05+08:00", Precip: "0.2", Type: "rain"},
 		{FXTime: "2026-09-29T10:10+08:00", Precip: "0.0", Type: "rain"},
 	}
-	if got := summarizeRain(points); got != "局部可能有雨" {
+	now := time.Date(2026, 9, 29, 2, 0, 0, 0, time.UTC)
+	parsed, err := parseRainPoints(points, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rainSummaryAt(parsed, now); got != "局部可能有雨" {
 		t.Fatalf("summarizeRain() = %q, want isolated prediction retained without exact timing", got)
 	}
 }
@@ -220,17 +232,9 @@ func TestWeatherRefreshUsesEachSourceUpdateCadence(t *testing.T) {
 		case "/weather/v1/current/22.54/114.06":
 			return response(http.StatusOK, `{"condition":{"text":"多云","code":"101"},"temperature":{"value":29.4}}`), nil
 		case "/weather/v1/daily/22.54/114.06":
-			return response(http.StatusOK, `{"days":[
-				{"daytime":{"condition":{"text":"少云","code":"102"},"precipitation":{"probability":0.1}},"temperatureMin":{"value":25},"temperatureMax":{"value":34}},
-				{"daytime":{"condition":{"text":"多云","code":"101"},"precipitation":{"probability":0.35}},"temperatureMin":{"value":26},"temperatureMax":{"value":33}},
-				{"daytime":{"condition":{"text":"阵雨","code":"300"},"precipitation":{"probability":0.8}},"temperatureMin":{"value":25},"temperatureMax":{"value":31}}
-			]}`), nil
+			return response(http.StatusOK, validDailyPayload(now)), nil
 		case "/v7/minutely/5m":
-			return response(http.StatusOK, `{"code":"200","summary":"未来两小时无降水","minutely":[
-				{"fxTime":"2026-09-29T10:00+08:00","precip":"0.0","type":"rain"},
-				{"fxTime":"2026-09-29T10:05+08:00","precip":"0.0","type":"rain"},
-				{"fxTime":"2026-09-29T10:10+08:00","precip":"0.0","type":"rain"}
-			]}`), nil
+			return response(http.StatusOK, validRainPayload(now)), nil
 		case "/weatheralert/v1/current/22.54/114.06":
 			return response(http.StatusOK, `{"alerts":[]}`), nil
 		default:
@@ -249,7 +253,11 @@ func TestWeatherRefreshUsesEachSourceUpdateCadence(t *testing.T) {
 		if refreshErr != nil {
 			t.Fatalf("Refresh() at tick %d error = %v", tick, refreshErr)
 		}
-		if !got.Enabled || got.Temperature != 29.4 || got.RainSummary != "未来2小时无明显降雨" || len(got.Forecasts) != 2 {
+		wantRain := "暂未见明显降雨"
+		if tick%2 == 0 {
+			wantRain = "未来2小时无明显降雨"
+		}
+		if !got.Enabled || got.Temperature != 29.4 || got.RainSummary != wantRain || len(got.Forecasts) != 2 {
 			t.Fatalf("Refresh() at tick %d = %#v", tick, got)
 		}
 		stamp := client.RefreshedAt()

@@ -71,19 +71,28 @@ func (c *Client) Current(ctx context.Context) (model.WeatherStatus, error) {
 		return model.WeatherStatus{Enabled: false, Units: c.cfg.Units}, nil
 	}
 	result := c.emptyStatus()
-	if err := c.readCurrent(ctx, &result); err != nil {
-		return model.WeatherStatus{}, err
+	result.Components = &model.WeatherComponents{}
+	// Legacy callers still fetch all four sources per call. Keep their cadence
+	// and all-or-nothing error contract while supplying the same validity metadata.
+	for _, source := range []struct {
+		read     func(context.Context, *model.WeatherStatus) error
+		metadata *model.WeatherComponent
+		interval time.Duration
+		rain     bool
+	}{
+		{c.readCurrent, &result.Components.Current, currentRefreshInterval, false},
+		{c.readForecast, &result.Components.Forecast, forecastRefreshInterval, false},
+		{c.readRain, &result.Components.Rain, rainRefreshInterval, true},
+		{c.readAlerts, &result.Components.Alerts, alertRefreshInterval, false},
+	} {
+		if err := source.read(ctx, &result); err != nil {
+			return model.WeatherStatus{}, err
+		}
+		stamp := c.now()
+		source.metadata.AttemptedAt = stamp
+		markSuccessfulSource(source.metadata, result, stamp, source.interval, source.rain)
 	}
-	if err := c.readForecast(ctx, &result); err != nil {
-		return model.WeatherStatus{}, err
-	}
-	if err := c.readRain(ctx, &result); err != nil {
-		return model.WeatherStatus{}, err
-	}
-	if err := c.readAlerts(ctx, &result); err != nil {
-		return model.WeatherStatus{}, err
-	}
-	return result, nil
+	return ProjectAt(result, c.now()), nil
 }
 
 func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
@@ -149,21 +158,33 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 			failures = append(failures, outcome.err)
 		} else {
 			applyComponent(&next.status, outcome.value, outcome.index)
-			metadata.UpdatedAt = now
-			metadata.ExpiresAt = now.Add(3 * source.interval)
-			metadata.Error = ""
+			markSuccessfulSource(metadata, outcome.value, now, source.interval, outcome.index == 1)
 		}
 	}
 	for _, source := range sources {
 		metadata := source.metadata
-		metadata.Stale = metadata.UpdatedAt.IsZero() || now.After(metadata.ExpiresAt)
+		metadata.Stale = metadata.UpdatedAt.IsZero() || !now.Before(metadata.ExpiresAt)
 	}
 	c.cache = next
 	// A caller must not be able to mutate the cached component timestamps.
 	output := next.status
+	output.RainPoints = append([]model.RainPoint(nil), next.status.RainPoints...)
 	copy := components
 	output.Components = &copy
-	return output, errors.Join(failures...)
+	return ProjectAt(output, now), errors.Join(failures...)
+}
+
+func markSuccessfulSource(metadata *model.WeatherComponent, value model.WeatherStatus, now time.Time, interval time.Duration, rain bool) {
+	metadata.UpdatedAt = now
+	metadata.ExpiresAt = now.Add(3 * interval)
+	if rain {
+		metadata.SourceUpdatedAt = value.RainUpdatedAt
+		metadata.ExpiresAt = earlier(metadata.ExpiresAt, value.RainUpdatedAt.Add(3*rainRefreshInterval))
+		points := value.RainPoints
+		metadata.ExpiresAt = earlier(metadata.ExpiresAt, points[len(points)-1].At.Add(5*time.Minute))
+	}
+	metadata.Error = ""
+	metadata.Stale = false
 }
 
 func applyComponent(destination *model.WeatherStatus, value model.WeatherStatus, index int) {
@@ -178,6 +199,8 @@ func applyComponent(destination *model.WeatherStatus, value model.WeatherStatus,
 		destination.Condition, destination.ConditionCode = value.Condition, value.ConditionCode
 	case 1:
 		destination.RainSummary = value.RainSummary
+		destination.RainUpdatedAt = value.RainUpdatedAt
+		destination.RainPoints = value.RainPoints
 	case 2:
 		destination.Warnings = value.Warnings
 	case 3:
@@ -272,6 +295,8 @@ func (c *Client) readForecast(ctx context.Context, result *model.WeatherStatus) 
 	coordinates := coordinate(c.cfg.Latitude) + "/" + coordinate(c.cfg.Longitude)
 	var daily struct {
 		Days []struct {
+			Start   string `json:"forecastStartTime"`
+			End     string `json:"forecastEndTime"`
 			Daytime struct {
 				Condition struct {
 					Text string `json:"text"`
@@ -293,13 +318,30 @@ func (c *Client) readForecast(ctx context.Context, result *model.WeatherStatus) 
 		return fmt.Errorf("read daily forecast: %w", err)
 	}
 	forecasts := make([]model.WeatherForecast, 0, 2)
-	for index := 1; index < len(daily.Days) && len(forecasts) < 2; index++ {
-		day := daily.Days[index]
+	for _, day := range daily.Days {
+		start, err := parseWeatherTime(day.Start)
+		if err != nil {
+			return errors.New("daily forecast has invalid start time")
+		}
+		end, err := parseWeatherTime(day.End)
+		if err != nil || !end.After(start) {
+			return errors.New("daily forecast has invalid end time")
+		}
+		if !futureDaily(start, end, c.now()) {
+			continue
+		}
+		if len(forecasts) == 2 {
+			continue
+		}
 		forecasts = append(forecasts, model.WeatherForecast{
+			StartAt: start, EndAt: end,
 			Condition: strings.TrimSpace(day.Daytime.Condition.Text), ConditionCode: strings.TrimSpace(day.Daytime.Condition.Code),
 			TemperatureMin: day.TemperatureMin.Value, TemperatureMax: day.TemperatureMax.Value,
 			PrecipitationProbability: day.Daytime.Precipitation.Probability,
 		})
+	}
+	if len(forecasts) == 0 {
+		return errors.New("daily forecast has no valid future days")
 	}
 	result.Forecasts = forecasts
 	return nil
@@ -307,8 +349,9 @@ func (c *Client) readForecast(ctx context.Context, result *model.WeatherStatus) 
 
 func (c *Client) readRain(ctx context.Context, result *model.WeatherStatus) error {
 	var rain struct {
-		Code     string                  `json:"code"`
-		Minutely []minutelyPrecipitation `json:"minutely"`
+		Code       string                  `json:"code"`
+		UpdateTime string                  `json:"updateTime"`
+		Minutely   []minutelyPrecipitation `json:"minutely"`
 	}
 	location := coordinate(c.cfg.Longitude) + "," + coordinate(c.cfg.Latitude)
 	if err := c.getJSON(ctx, "/v7/minutely/5m", url.Values{"location": {location}, "lang": {"zh"}}, &rain); err != nil {
@@ -317,60 +360,18 @@ func (c *Client) readRain(ctx context.Context, result *model.WeatherStatus) erro
 	if rain.Code != "200" {
 		return errors.New("read rain forecast: QWeather returned an error")
 	}
-	result.RainSummary = summarizeRain(rain.Minutely)
+	now := c.now()
+	updated, err := parseWeatherTime(rain.UpdateTime)
+	if err != nil || updated.After(now.Add(5*time.Minute)) || !updated.Add(3*rainRefreshInterval).After(now) {
+		return errors.New("rain forecast source time unavailable or expired")
+	}
+	points, err := parseRainPoints(rain.Minutely, now)
+	if err != nil {
+		return err
+	}
+	result.RainUpdatedAt, result.RainPoints = updated, points
+	result.RainSummary = rainSummaryAt(points, now)
 	return nil
-}
-
-func summarizeRain(points []minutelyPrecipitation) string {
-	start := stableRainStart(points)
-	if start < 0 {
-		if hasRainSignal(points) {
-			return "局部可能有雨"
-		}
-		return "未来2小时无明显降雨"
-	}
-	minutes := start * 5
-	switch {
-	case minutes == 0:
-		return "当前可能有雨"
-	case minutes <= 20:
-		return "短时可能有雨"
-	case minutes <= 50:
-		return "约半小时后可能有雨"
-	case minutes <= 80:
-		return "约1小时后可能有雨"
-	default:
-		return "未来2小时可能有雨"
-	}
-}
-
-func hasRainSignal(points []minutelyPrecipitation) bool {
-	for _, point := range points {
-		amount, err := strconv.ParseFloat(strings.TrimSpace(point.Precip), 64)
-		if err == nil && amount > 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func stableRainStart(points []minutelyPrecipitation) int {
-	for start := 0; start+minRainSamples <= len(points); start++ {
-		total := 0.0
-		stable := true
-		for index := start; index < start+minRainSamples; index++ {
-			amount, err := strconv.ParseFloat(strings.TrimSpace(points[index].Precip), 64)
-			if err != nil || amount <= 0 {
-				stable = false
-				break
-			}
-			total += amount
-		}
-		if stable && total >= minRainTotalMillimeters {
-			return start
-		}
-	}
-	return -1
 }
 
 func (c *Client) readAlerts(ctx context.Context, result *model.WeatherStatus) error {

@@ -66,8 +66,8 @@ func TestStoreCachesHomeAssistantFanIndependently(t *testing.T) {
 	now = now.Add(10 * time.Second)
 	store.SetHome(model.FanStatus{State: "off"}, errors.New("upstream body with bearer secret"))
 	snapshot := store.Snapshot()
-	if model.SchemaVersion != 6 {
-		t.Fatalf("SchemaVersion = %d, want 6", model.SchemaVersion)
+	if model.SchemaVersion != 7 {
+		t.Fatalf("SchemaVersion = %d, want 7", model.SchemaVersion)
 	}
 	if snapshot.Home.Data.State != "on" || snapshot.Home.Data.OnSince == nil || !snapshot.Home.Data.OnSince.Equal(onSince) || snapshot.Home.Data.Percentage == nil || *snapshot.Home.Data.Percentage != 42 {
 		t.Fatalf("home last-good data = %#v", snapshot.Home)

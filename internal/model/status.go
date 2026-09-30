@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-const SchemaVersion = 6
+const SchemaVersion = 7
 
 type Module[T any] struct {
 	Data      T         `json:"data"`
@@ -103,6 +103,8 @@ type WeatherStatus struct {
 	Condition               string             `json:"condition"`
 	ConditionCode           string             `json:"condition_code"`
 	RainSummary             string             `json:"rain_summary,omitempty"`
+	RainUpdatedAt           time.Time          `json:"rain_updated_at,omitempty"`
+	RainPoints              []RainPoint        `json:"rain_points,omitempty"`
 	Warnings                []WeatherWarning   `json:"warnings"`
 	Forecasts               []WeatherForecast  `json:"forecasts,omitempty"`
 	Source                  string             `json:"source"`
@@ -112,11 +114,12 @@ type WeatherStatus struct {
 
 // Each weather source owns its freshness; successful sibling reads never renew it.
 type WeatherComponent struct {
-	UpdatedAt   time.Time `json:"updated_at"`
-	AttemptedAt time.Time `json:"attempted_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	Error       string    `json:"error,omitempty"`
-	Stale       bool      `json:"stale"`
+	SourceUpdatedAt time.Time `json:"source_updated_at,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	AttemptedAt     time.Time `json:"attempted_at"`
+	ExpiresAt       time.Time `json:"expires_at"`
+	Error           string    `json:"error,omitempty"`
+	Stale           bool      `json:"stale"`
 }
 
 type WeatherComponents struct {
@@ -127,11 +130,18 @@ type WeatherComponents struct {
 }
 
 type WeatherForecast struct {
-	Condition                string  `json:"condition"`
-	ConditionCode            string  `json:"condition_code"`
-	TemperatureMin           float64 `json:"temperature_min"`
-	TemperatureMax           float64 `json:"temperature_max"`
-	PrecipitationProbability float64 `json:"precipitation_probability"`
+	StartAt                  time.Time `json:"start_at,omitempty"`
+	EndAt                    time.Time `json:"end_at,omitempty"`
+	Condition                string    `json:"condition"`
+	ConditionCode            string    `json:"condition_code"`
+	TemperatureMin           float64   `json:"temperature_min"`
+	TemperatureMax           float64   `json:"temperature_max"`
+	PrecipitationProbability float64   `json:"precipitation_probability"`
+}
+
+type RainPoint struct {
+	At     time.Time `json:"at"`
+	Amount float64   `json:"amount"`
 }
 
 type WeatherWarning struct {
