@@ -55,6 +55,7 @@ type Dependencies struct {
 
 type server struct {
 	operationMu        sync.RWMutex
+	setupMu            sync.Mutex
 	recoveryRequired   bool
 	store              *state.Store
 	assets             fs.FS

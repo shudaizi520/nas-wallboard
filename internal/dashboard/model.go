@@ -3,6 +3,7 @@ package dashboard
 type View struct {
 	Width          int        `json:"width"`
 	ConnectionTone string     `json:"connection_tone"`
+	DataStatus     string     `json:"data_status,omitempty"`
 	Uptime         string     `json:"uptime,omitempty"`
 	NASPower       string     `json:"nas_power,omitempty"`
 	Metrics        []Metric   `json:"metrics"`

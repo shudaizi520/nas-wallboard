@@ -105,11 +105,21 @@ func TestServiceCRUDViewsAreRedactedAndSecretsAreCollected(t *testing.T) {
 	if !service.Instances()[0].Enabled {
 		t.Fatal("Enable did not persist")
 	}
+	if err := store.Update(func(state *persist.State) error {
+		state.Widgets = []persist.Widget{{ID: "plex-1", DefinitionID: "plex", IntegrationID: created.ID, Enabled: true}, {ID: "cpu-1", DefinitionID: "cpu", Enabled: true, Order: 1}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := service.Remove(context.Background(), created.ID); err != nil {
 		t.Fatal(err)
 	}
 	if len(service.Instances()) != 0 {
 		t.Fatal("Remove did not persist")
+	}
+	remaining := store.Snapshot().Widgets
+	if len(remaining) != 1 || remaining[0].ID != "cpu-1" || remaining[0].Order != 0 {
+		t.Fatalf("removed source widgets survived: %#v", remaining)
 	}
 	if _, err := secrets.Read(ref); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("removed secret is still readable: %v", err)
@@ -155,7 +165,9 @@ func TestServiceFailedRotationPreservesOldStateAndSecret(t *testing.T) {
 	if !errors.Is(err, ErrProbeFailed) || result.Stage != ProbeStageAuthentication {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
-	if notifications != 0 { t.Fatalf("failed rotation notified runtime %d times", notifications) }
+	if notifications != 0 {
+		t.Fatalf("failed rotation notified runtime %d times", notifications)
+	}
 	after := store.Snapshot().Integrations[0]
 	if after.Config["url"] != before.Config["url"] || after.SecretRefs["token"] != before.SecretRefs["token"] {
 		t.Fatalf("failed update changed state: %#v", after)

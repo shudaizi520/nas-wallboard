@@ -119,13 +119,13 @@ func (manager *Manager) Apply(ctx context.Context, _ []persist.Integration, afte
 		runtimeCtx, cancel := context.WithCancel(manager.ctx)
 		replacement := &runtimeEntry{fingerprint: fingerprint, typeID: instance.Type, cancel: cancel, done: make(chan struct{}), collector: collector}
 		previous := manager.runtimes[instance.ID]
-		manager.runtimes[instance.ID] = replacement
-		manager.health[instance.ID] = RuntimeHealth{InstanceID: instance.ID, Type: instance.Type, Running: true, Healthy: true, Message: "运行中", UpdatedAt: time.Now()}
-		go manager.run(instance.ID, runtimeCtx, replacement, collector)
 		if previous != nil {
 			previous.cancel()
 			<-previous.done
 		}
+		manager.runtimes[instance.ID] = replacement
+		manager.health[instance.ID] = RuntimeHealth{InstanceID: instance.ID, Type: instance.Type, Running: true, Healthy: true, Message: "运行中", UpdatedAt: time.Now()}
+		go manager.run(instance.ID, runtimeCtx, replacement, collector)
 	}
 	return errors.Join(failures...)
 }

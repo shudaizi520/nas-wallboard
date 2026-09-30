@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,7 +37,7 @@ func NewService(registry *Registry, store *persist.Store) *Service {
 func (s *Service) ValidateRestored(store *persist.Store) (config.DashboardConfig, error) {
 	candidate := NewService(s.registry, store)
 	layout := Layout{Width: candidate.Layout().Width, Widgets: store.Snapshot().Widgets}
-	if err := candidate.update(layout, true); err != nil {
+	if err := candidate.update(layout); err != nil {
 		return config.DashboardConfig{}, err
 	}
 	return candidate.DashboardConfig(config.DashboardConfig{})
@@ -142,7 +143,7 @@ func (s *Service) CatalogForLayout(capabilities map[string]bool) []Definition {
 	for _, definition := range result {
 		seen[definition.ID] = true
 	}
-	for _, item := range s.Layout().Widgets {
+	for _, item := range s.store.Snapshot().Widgets {
 		if seen[item.DefinitionID] {
 			continue
 		}
@@ -154,101 +155,127 @@ func (s *Service) CatalogForLayout(capabilities map[string]bool) []Definition {
 	return result
 }
 func (s *Service) Layout() Layout {
-	state := s.store.Snapshot()
+	return s.layout(s.store.Snapshot())
+}
+
+var ErrLayoutConflict = errors.New("layout changed; synchronize before saving")
+
+func layoutRevision(state persist.State) string {
+	// Source settings and opaque credential references invalidate stale editors;
+	// plaintext credentials are never loaded or returned to the client.
+	sources := append([]persist.Integration(nil), state.Integrations...)
+	sort.Slice(sources, func(i, j int) bool { return sources[i].ID < sources[j].ID })
+	data, _ := json.Marshal(struct {
+		Width   int
+		Widgets []persist.Widget
+		Sources []persist.Integration
+	}{state.Server.Width, state.Widgets, sources})
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+func (s *Service) layout(state persist.State) Layout {
 	width := state.Server.Width
 	if width < 300 || width > 720 {
 		width = 360
 	}
-	widgets := append([]persist.Widget(nil), state.Widgets...)
-	enabled := map[string]bool{}
-	for _, item := range state.Integrations {
-		enabled[item.ID] = item.Enabled
+	widgets := append([]persist.Widget{}, state.Widgets...)
+	sources := map[string]string{}
+	for _, source := range state.Integrations {
+		sources[source.ID] = source.Type
 	}
+	retained := widgets[:0]
+	for _, item := range widgets {
+		definition, _ := s.registry.Definition(item.DefinitionID)
+		if definition.IntegrationType != "" && sources[item.IntegrationID] != definition.IntegrationType {
+			continue
+		}
+		retained = append(retained, item)
+	}
+	widgets = retained
 	for index := range widgets {
 		widgets[index].Config = cloneMap(widgets[index].Config)
-		definition, _ := s.registry.Definition(widgets[index].DefinitionID)
-		if definition.IntegrationType != "" && !enabled[widgets[index].IntegrationID] {
-			widgets[index].Enabled = false
-		}
 	}
 	sort.SliceStable(widgets, func(i, j int) bool { return widgets[i].Order < widgets[j].Order })
-	return Layout{Width: width, Widgets: widgets}
+	for index := range widgets {
+		widgets[index].Order = index
+	}
+	return Layout{Revision: layoutRevision(state), Width: width, Widgets: widgets}
 }
 func (s *Service) Update(layout Layout) error {
-	return s.update(layout, false)
+	return s.update(layout)
 }
 
-func (s *Service) update(layout Layout, allowDisabled bool) error {
+func (s *Service) update(layout Layout) error {
 	if layout.Width < 300 || layout.Width > 720 {
 		return errors.New("width must be between 300 and 720")
 	}
-	state := s.store.Snapshot()
-	sources := map[string]string{}
-	for _, item := range state.Integrations {
-		if item.Enabled || allowDisabled {
+	return s.store.Update(func(state *persist.State) error {
+		if layout.Revision != "" && layout.Revision != layoutRevision(*state) {
+			return ErrLayoutConflict
+		}
+		sources := map[string]string{}
+		for _, item := range state.Integrations {
 			sources[item.ID] = item.Type
 		}
-	}
-	seenIDs := map[string]bool{}
-	seenDefinitions := map[string]bool{}
-	seenOrders := map[int]bool{}
-	for index, item := range layout.Widgets {
-		if !safeInstanceID.MatchString(item.ID) || seenIDs[item.ID] {
-			return errors.New("invalid widget ID")
-		}
-		seenIDs[item.ID] = true
-		definition, ok := s.registry.Definition(item.DefinitionID)
-		if !ok {
-			return errors.New("unknown widget definition")
-		}
-		if !definition.AllowMultiple && seenDefinitions[item.DefinitionID] {
-			return errors.New("duplicate widget definition")
-		}
-		seenDefinitions[item.DefinitionID] = true
-		if seenOrders[item.Order] || item.Order != index {
-			return errors.New("widget order must be contiguous")
-		}
-		seenOrders[item.Order] = true
-		if item.Enabled && definition.IntegrationType != "" && sources[item.IntegrationID] != definition.IntegrationType {
-			return errors.New("widget source is unavailable")
-		}
-		if visibility, ok := item.Config["visibility"].(string); ok && Visibility(visibility) != definition.Visibility {
-			return fmt.Errorf("widget %s visibility is fixed", item.ID)
-		}
-		configuration := integration.Config{}
-		fieldKinds := map[string]integration.FieldKind{}
-		for _, field := range definition.Fields {
-			fieldKinds[field.Key] = field.Kind
-		}
-		for key, value := range item.Config {
-			if key != "visibility" {
-				if fieldKinds[key] == integration.FieldInteger {
-					if parsed, valid := int64Value(value); valid {
-						value = parsed
+		seenIDs := map[string]bool{}
+		seenDefinitions := map[string]bool{}
+		seenOrders := map[int]bool{}
+		for index, item := range layout.Widgets {
+			if !safeInstanceID.MatchString(item.ID) || seenIDs[item.ID] {
+				return errors.New("invalid widget ID")
+			}
+			seenIDs[item.ID] = true
+			definition, ok := s.registry.Definition(item.DefinitionID)
+			if !ok {
+				return errors.New("unknown widget definition")
+			}
+			if !definition.AllowMultiple && seenDefinitions[item.DefinitionID] {
+				return errors.New("duplicate widget definition")
+			}
+			seenDefinitions[item.DefinitionID] = true
+			if seenOrders[item.Order] || item.Order != index {
+				return errors.New("widget order must be contiguous")
+			}
+			seenOrders[item.Order] = true
+			if item.Enabled && definition.IntegrationType != "" && sources[item.IntegrationID] != definition.IntegrationType {
+				return errors.New("widget source is unavailable")
+			}
+			if visibility, ok := item.Config["visibility"].(string); ok && Visibility(visibility) != definition.Visibility {
+				return fmt.Errorf("widget %s visibility is fixed", item.ID)
+			}
+			configuration := integration.Config{}
+			fieldKinds := map[string]integration.FieldKind{}
+			for _, field := range definition.Fields {
+				fieldKinds[field.Key] = field.Kind
+			}
+			for key, value := range item.Config {
+				if key != "visibility" {
+					if fieldKinds[key] == integration.FieldInteger {
+						if parsed, valid := int64Value(value); valid {
+							value = parsed
+						}
+					}
+					configuration[key] = value
+				}
+			}
+			if err := integration.ValidateFields(definition.Fields, configuration); err != nil {
+				return fmt.Errorf("widget %s configuration: %w", item.ID, err)
+			}
+			warning, hasWarning := int64Value(item.Config["warning_percent"])
+			critical, hasCritical := int64Value(item.Config["critical_percent"])
+			if hasWarning && hasCritical {
+				switch definition.ID {
+				case "pool_capacity":
+					if warning >= critical {
+						return fmt.Errorf("widget %s configuration: warning threshold must be lower than critical threshold", item.ID)
+					}
+				case "memory_pressure":
+					if critical >= warning {
+						return fmt.Errorf("widget %s configuration: critical threshold must be lower than warning threshold", item.ID)
 					}
 				}
-				configuration[key] = value
 			}
 		}
-		if err := integration.ValidateFields(definition.Fields, configuration); err != nil {
-			return fmt.Errorf("widget %s configuration: %w", item.ID, err)
-		}
-		warning, hasWarning := int64Value(item.Config["warning_percent"])
-		critical, hasCritical := int64Value(item.Config["critical_percent"])
-		if hasWarning && hasCritical {
-			switch definition.ID {
-			case "pool_capacity":
-				if warning >= critical {
-					return fmt.Errorf("widget %s configuration: warning threshold must be lower than critical threshold", item.ID)
-				}
-			case "memory_pressure":
-				if critical >= warning {
-					return fmt.Errorf("widget %s configuration: critical threshold must be lower than warning threshold", item.ID)
-				}
-			}
-		}
-	}
-	return s.store.Update(func(state *persist.State) error {
 		state.Server.Width = layout.Width
 		state.Widgets = make([]persist.Widget, len(layout.Widgets))
 		for index, item := range layout.Widgets {
@@ -290,7 +317,7 @@ func cloneMap(value map[string]any) map[string]any {
 	return result
 }
 func cloneLayout(value Layout) Layout {
-	result := Layout{Width: value.Width, Widgets: make([]persist.Widget, len(value.Widgets))}
+	result := Layout{Revision: value.Revision, Width: value.Width, Widgets: make([]persist.Widget, len(value.Widgets))}
 	for index, item := range value.Widgets {
 		item.Config = cloneMap(item.Config)
 		result.Widgets[index] = item
@@ -301,7 +328,12 @@ func cloneLayout(value Layout) Layout {
 // DashboardConfig adapts stable widget instances to the normalized dashboard
 // configuration shared by the browser and Windows desktop renderers.
 func (s *Service) DashboardConfig(base config.DashboardConfig) (config.DashboardConfig, error) {
-	layout := s.Layout()
+	state := s.store.Snapshot()
+	layout := s.layout(state)
+	enabled := map[string]bool{}
+	for _, source := range state.Integrations {
+		enabled[source.ID] = source.Enabled
+	}
 	result := base
 	result.Width = layout.Width
 	result.Metrics = []config.MetricConfig{}
@@ -312,6 +344,9 @@ func (s *Service) DashboardConfig(base config.DashboardConfig) (config.Dashboard
 		}
 		definition, ok := s.registry.Definition(item.DefinitionID)
 		if !ok || definition.LegacyType == "" {
+			continue
+		}
+		if definition.IntegrationType != "" && !enabled[item.IntegrationID] {
 			continue
 		}
 		switch definition.Placement {

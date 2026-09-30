@@ -147,6 +147,23 @@ func TestHomeAssistantCollectorPublishesFanAndNASPower(t *testing.T) {
 	}
 }
 
+func TestConstructingHomeAssistantReplacementDoesNotOverwriteLiveState(t *testing.T) {
+	runtimeStore := state.New("test", state.StaleAfter{}, time.Now)
+	runtimeStore.SetHome(model.FanStatus{Enabled: true, Available: true, Name: "旧风扇", State: "on"}, nil)
+	registry, err := BuiltInRegistry(RuntimeOptions{Store: runtimeStore})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, _ := registry.Definition("home_assistant")
+	_, err = definition.Collector(integration.Config{"url": "http://127.0.0.1:8123", "entity_id": "fan.new", "name": "新风扇"}, integration.Secrets{"token": []byte("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeStore.Snapshot().Home.Data; got.Name != "旧风扇" || got.State != "on" {
+		t.Fatalf("constructor replaced live state: %#v", got)
+	}
+}
+
 func TestWeatherCoordinatesAcceptsNumericValuesFromEarlyLegacyImports(t *testing.T) {
 	for _, settings := range []integration.Config{
 		{"latitude": json.Number("22.69"), "longitude": json.Number("114.13")},

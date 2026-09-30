@@ -86,7 +86,7 @@ func TestLayoutAPIIsAuthenticatedAndPersistsStableInstances(t *testing.T) {
 	if len(view.Catalog) == 0 || len(view.Sources) != 2 || len(view.Layout.Widgets) != 2 {
 		t.Fatalf("view = %#v", view)
 	}
-	next := widget.Layout{Width: 500, Widgets: []persist.Widget{
+	next := widget.Layout{Revision: view.Layout.Revision, Width: 500, Widgets: []persist.Widget{
 		{ID: "plex-1", DefinitionID: "plex", IntegrationID: "plex-main", Enabled: true, Order: 0, Config: map[string]any{"limit": 4}},
 		{ID: "cpu-1", DefinitionID: "cpu", IntegrationID: "truenas-main", Enabled: true, Order: 1},
 	}}
@@ -108,7 +108,7 @@ func TestLayoutAPIIsAuthenticatedAndPersistsStableInstances(t *testing.T) {
 }
 
 func TestLayoutAPIRejectsMissingCSRFUnknownFieldsAndInvalidSource(t *testing.T) {
-	handler, _, _ := layoutFixture(t)
+	handler, store, _ := layoutFixture(t)
 	cookie, csrf := loginForTest(t, handler)
 	validHeaders := map[string]string{"Content-Type": "application/json", "Origin": "http://nas.local", "X-CSRF-Token": csrf}
 	missingCSRF := protectedRequest(t, handler, http.MethodPut, "http://nas.local/api/manage/layout", bytes.NewBufferString(`{"width":360,"widgets":[]}`), map[string]string{"Content-Type": "application/json", "Origin": "http://nas.local"}, cookie)
@@ -119,8 +119,44 @@ func TestLayoutAPIRejectsMissingCSRFUnknownFieldsAndInvalidSource(t *testing.T) 
 	if unknown.Code != http.StatusBadRequest {
 		t.Fatalf("unknown = %d %q", unknown.Code, unknown.Body.String())
 	}
-	invalid := protectedRequest(t, handler, http.MethodPut, "http://nas.local/api/manage/layout", bytes.NewBufferString(`{"width":360,"widgets":[{"id":"plex-1","definition_id":"plex","integration_id":"missing","enabled":true,"order":0}]}`), validHeaders, cookie)
+	registry, _ := widget.BuiltInRegistry()
+	payload, _ := json.Marshal(widget.Layout{Revision: widget.NewService(registry, store).Layout().Revision, Width: 360, Widgets: []persist.Widget{{ID: "plex-1", DefinitionID: "plex", IntegrationID: "missing", Enabled: true, Order: 0}}})
+	invalid := protectedRequest(t, handler, http.MethodPut, "http://nas.local/api/manage/layout", bytes.NewReader(payload), validHeaders, cookie)
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("invalid source = %d %q", invalid.Code, invalid.Body.String())
+	}
+}
+
+func TestLayoutAPIRejectsStaleTabsAndUnversionedWrites(t *testing.T) {
+	handler, store, _ := layoutFixture(t)
+	cookie, csrf := loginForTest(t, handler)
+	headers := map[string]string{"Content-Type": "application/json", "Origin": "http://nas.local", "X-CSRF-Token": csrf}
+	get := protectedRequest(t, handler, http.MethodGet, "http://nas.local/api/manage/layout", nil, nil, cookie)
+	var response struct {
+		Layout widget.Layout `json:"layout"`
+	}
+	if err := json.Unmarshal(get.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	put := func(layout widget.Layout) int {
+		data, _ := json.Marshal(layout)
+		return protectedRequest(t, handler, http.MethodPut, "http://nas.local/api/manage/layout", bytes.NewReader(data), headers, cookie).Code
+	}
+	first := response.Layout
+	first.Width = 500
+	if code := put(first); code != http.StatusOK {
+		t.Fatalf("first save=%d", code)
+	}
+	stale := response.Layout
+	stale.Width = 600
+	if code := put(stale); code != http.StatusConflict {
+		t.Fatalf("stale save=%d", code)
+	}
+	stale.Revision = ""
+	if code := put(stale); code != http.StatusConflict {
+		t.Fatalf("unversioned save=%d", code)
+	}
+	if store.Snapshot().Server.Width != 500 {
+		t.Fatal("rejected save changed layout")
 	}
 }

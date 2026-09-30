@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,11 +22,30 @@ type Collectors struct {
 	selected []config.AppConfig
 	now      func() time.Time
 
-	metadataMu      sync.Mutex
-	graphsLoaded    bool
-	memoryLoaded    bool
-	interfaceIDs    []string
-	memoryTotalByte uint64
+	metadataMu   sync.Mutex
+	graphsLoaded bool
+	interfaceIDs []string
+
+	systemMu        sync.Mutex
+	systemCache     systemWire
+	systemReadAt    time.Time
+	systemAttemptAt time.Time
+	systemError     error
+
+	memoryMu        sync.Mutex
+	memoryAvailable uint64
+	memoryReadAt    time.Time
+	memoryAttemptAt time.Time
+	memoryError     error
+
+	alertsMu        sync.Mutex
+	alertsCache     []alertWire
+	alertsReadAt    time.Time
+	alertsAttemptAt time.Time
+	alertsError     error
+
+	sourceMu     sync.Mutex
+	sourceReadAt map[string]time.Time
 }
 
 func NewCollectors(caller Caller, selected []config.AppConfig) *Collectors {
@@ -37,9 +57,10 @@ func NewCollectors(caller Caller, selected []config.AppConfig) *Collectors {
 		return apps[i].Sort < apps[j].Sort
 	})
 	return &Collectors{
-		caller:   caller,
-		selected: apps,
-		now:      time.Now,
+		caller:       caller,
+		selected:     apps,
+		now:          time.Now,
+		sourceReadAt: make(map[string]time.Time),
 	}
 }
 
@@ -51,15 +72,12 @@ type systemWire struct {
 }
 
 func (c *Collectors) CollectSystem(ctx context.Context) (model.SystemStatus, error) {
-	var raw systemWire
-	if err := c.caller.Call(ctx, "system.info", []any{}, &raw); err != nil {
+	raw, readAt, err := c.readSystem(ctx)
+	if err != nil {
 		return model.SystemStatus{}, fmt.Errorf("collect system information: %w", err)
 	}
 	memoryTotal := uintFromJSON(raw.Physmem)
-	c.metadataMu.Lock()
-	c.memoryTotalByte = memoryTotal
-	c.memoryLoaded = true
-	c.metadataMu.Unlock()
+	c.markSource("system", readAt)
 	return model.SystemStatus{
 		Hostname:         raw.Hostname,
 		Version:          raw.Version,
@@ -68,19 +86,81 @@ func (c *Collectors) CollectSystem(ctx context.Context) (model.SystemStatus, err
 	}, nil
 }
 
-type memoryWire struct {
-	Physmem json.RawMessage `json:"physmem"`
+// SourceReadAt is the oldest successful source read used by the latest
+// successful collection. Cache reuse never advances this timestamp.
+func (c *Collectors) SourceReadAt(module string) time.Time {
+	c.sourceMu.Lock()
+	defer c.sourceMu.Unlock()
+	return c.sourceReadAt[module]
+}
+
+func (c *Collectors) markSource(module string, at time.Time) {
+	c.sourceMu.Lock()
+	c.sourceReadAt[module] = at
+	c.sourceMu.Unlock()
+}
+
+func freshRead(now, readAt time.Time, ttl time.Duration) bool {
+	age := now.Sub(readAt)
+	return !readAt.IsZero() && age >= 0 && age < ttl
+}
+
+func (c *Collectors) readSystem(ctx context.Context) (systemWire, time.Time, error) {
+	c.systemMu.Lock()
+	defer c.systemMu.Unlock()
+	if freshRead(c.now(), c.systemReadAt, time.Minute) {
+		return c.systemCache, c.systemReadAt, nil
+	}
+	if c.systemError != nil && freshRead(c.now(), c.systemAttemptAt, time.Minute) {
+		// Realtime runs every five seconds, but a failed minute-level source
+		// must not acquire that faster retry cadence. Return failure, not an
+		// expired successful value, until the original interval elapses.
+		return systemWire{}, time.Time{}, c.systemError
+	}
+	c.systemAttemptAt = c.now()
+	var raw systemWire
+	if err := c.caller.Call(ctx, "system.info", []any{}, &raw); err != nil {
+		c.systemError = err
+		return systemWire{}, time.Time{}, err
+	}
+	c.systemError = nil
+	c.systemCache, c.systemReadAt = raw, c.now()
+	return raw, c.systemReadAt, nil
 }
 
 func (c *Collectors) CollectMemory(ctx context.Context) (model.MemoryStatus, error) {
-	var raw memoryWire
-	if err := c.caller.Call(ctx, "system.info", []any{}, &raw); err != nil {
+	raw, systemAt, err := c.readSystem(ctx)
+	if err != nil {
 		return model.MemoryStatus{}, fmt.Errorf("collect memory pressure: %w", err)
 	}
 	total := uintFromJSON(raw.Physmem)
 	if total == 0 {
 		return model.MemoryStatus{}, errors.New("collect memory pressure: total memory unavailable")
 	}
+	available, readAt, err := c.readAvailableMemory(ctx)
+	if err != nil {
+		return model.MemoryStatus{}, fmt.Errorf("collect memory pressure: %w", err)
+	}
+	if available > total {
+		available = total
+	}
+	if systemAt.Before(readAt) {
+		readAt = systemAt
+	}
+	c.markSource("memory", readAt)
+	return model.MemoryStatus{TotalBytes: total, AvailableBytes: available, AvailablePercent: percent(available, total)}, nil
+}
+
+func (c *Collectors) readAvailableMemory(ctx context.Context) (uint64, time.Time, error) {
+	c.memoryMu.Lock()
+	defer c.memoryMu.Unlock()
+	if freshRead(c.now(), c.memoryReadAt, 5*time.Second) {
+		return c.memoryAvailable, c.memoryReadAt, nil
+	}
+	if c.memoryError != nil && freshRead(c.now(), c.memoryAttemptAt, 5*time.Second) {
+		return 0, time.Time{}, c.memoryError
+	}
+	c.memoryAttemptAt = c.now()
 	now := c.now().Unix()
 	start := now - 10
 	if start < 1 {
@@ -91,7 +171,8 @@ func (c *Collectors) CollectMemory(ctx context.Context) (model.MemoryStatus, err
 		[]any{map[string]any{"name": "memory"}},
 		map[string]any{"start": start, "end": now, "aggregate": false},
 	}, &graphs); err != nil {
-		return model.MemoryStatus{}, fmt.Errorf("collect memory pressure: %w", err)
+		c.memoryError = err
+		return 0, time.Time{}, err
 	}
 	available := uint64(0)
 	foundAvailable := false
@@ -105,12 +186,12 @@ func (c *Collectors) CollectMemory(ctx context.Context) (model.MemoryStatus, err
 		}
 	}
 	if !foundAvailable {
-		return model.MemoryStatus{}, errors.New("collect memory pressure: available memory unavailable")
+		c.memoryError = errors.New("available memory unavailable")
+		return 0, time.Time{}, c.memoryError
 	}
-	if available > total {
-		available = total
-	}
-	return model.MemoryStatus{TotalBytes: total, AvailableBytes: available, AvailablePercent: percent(available, total)}, nil
+	c.memoryError = nil
+	c.memoryAvailable, c.memoryReadAt = available, c.now()
+	return available, c.memoryReadAt, nil
 }
 
 type reportingGraphWire struct {
@@ -150,18 +231,24 @@ func (c *Collectors) CollectRealtime(ctx context.Context) (model.RealtimeStatus,
 		"aggregate": false,
 	}}
 	var raw []netdataWire
+	// Serialize the available-memory source with its dedicated collector so
+	// a concurrent memory job can reuse this successful realtime read.
+	c.memoryMu.Lock()
 	if err := c.caller.Call(ctx, "reporting.netdata_get_data", params, &raw); err != nil {
+		c.memoryMu.Unlock()
 		return model.RealtimeStatus{}, fmt.Errorf("collect realtime information: %w", err)
 	}
 
 	var cpu, cpuTemperature, rxRate, txRate float64
 	var available uint64
 	availableFound := false
+	cpuFound, rxFound, txFound := false, false, false
 	for _, graph := range raw {
 		switch graph.Name {
 		case "cpu":
 			if value, found := latestMetric(graph, "cpu"); found {
 				cpu = clampPercent(value)
+				cpuFound = true
 			}
 		case "cputemp":
 			if value, found := latestCPUTemperature(graph); found && value > 0 {
@@ -173,13 +260,27 @@ func (c *Collectors) CollectRealtime(ctx context.Context) (model.RealtimeStatus,
 				availableFound = true
 			}
 		case "interface":
-			if value, found := latestMetric(graph, "received"); found && value > rxRate {
-				rxRate = value
+			if value, found := latestMetric(graph, "received"); found {
+				rxFound = true
+				if value > rxRate {
+					rxRate = value
+				}
 			}
-			if value, found := latestMetric(graph, "sent"); found && value > txRate {
-				txRate = value
+			if value, found := latestMetric(graph, "sent"); found {
+				txFound = true
+				if value > txRate {
+					txRate = value
+				}
 			}
 		}
+	}
+	if availableFound {
+		c.memoryAvailable, c.memoryReadAt = available, c.now()
+		c.memoryError = nil
+	}
+	c.memoryMu.Unlock()
+	if !cpuFound || !rxFound || !txFound || !availableFound || memoryTotal == 0 {
+		return model.RealtimeStatus{}, errors.New("collect realtime information: required CPU, network or memory sample unavailable")
 	}
 	used := uint64(0)
 	if availableFound && memoryTotal >= available {
@@ -213,15 +314,11 @@ func (c *Collectors) realtimeMetadata(ctx context.Context) ([]string, uint64, er
 		}
 		c.graphsLoaded = true
 	}
-	if !c.memoryLoaded {
-		var system systemWire
-		if err := c.caller.Call(ctx, "system.info", []any{}, &system); err != nil {
-			return nil, 0, fmt.Errorf("collect memory metadata: %w", err)
-		}
-		c.memoryTotalByte = uintFromJSON(system.Physmem)
-		c.memoryLoaded = true
+	system, _, err := c.readSystem(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("collect memory metadata: %w", err)
 	}
-	return append([]string(nil), c.interfaceIDs...), c.memoryTotalByte, nil
+	return append([]string(nil), c.interfaceIDs...), uintFromJSON(system.Physmem), nil
 }
 
 func latestCPUTemperature(graph netdataWire) (float64, bool) {
@@ -266,7 +363,10 @@ func latestMetric(graph netdataWire, name string) (float64, bool) {
 			continue
 		}
 		var value float64
-		if err := json.Unmarshal(graph.Data[i][index], &value); err == nil {
+		if isNullJSON(graph.Data[i][index]) {
+			continue
+		}
+		if err := json.Unmarshal(graph.Data[i][index], &value); err == nil && value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0) {
 			return value, true
 		}
 	}
@@ -366,10 +466,11 @@ func (c *Collectors) CollectDisks(ctx context.Context) ([]model.DiskStatus, erro
 }
 
 func (c *Collectors) CollectDiskHealth(ctx context.Context) ([]model.DiskHealthStatus, error) {
-	var raw []alertWire
-	if err := c.caller.Call(ctx, "alert.list", []any{}, &raw); err != nil {
+	raw, readAt, err := c.readAlerts(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("collect SMART summary: %w", err)
 	}
+	c.markSource("smart", readAt)
 	result := make([]model.DiskHealthStatus, 0, len(raw))
 	for _, item := range raw {
 		search := strings.ToLower(item.Class + " " + item.Formatted)
@@ -502,10 +603,11 @@ type alertWire struct {
 }
 
 func (c *Collectors) CollectAlerts(ctx context.Context) ([]model.AlertStatus, error) {
-	var raw []alertWire
-	if err := c.caller.Call(ctx, "alert.list", []any{}, &raw); err != nil {
+	raw, readAt, err := c.readAlerts(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("collect alerts: %w", err)
 	}
+	c.markSource("alerts", readAt)
 	alerts := make([]model.AlertStatus, 0, len(raw))
 	for _, item := range raw {
 		if item.Dismissed {
@@ -520,6 +622,26 @@ func (c *Collectors) CollectAlerts(ctx context.Context) ([]model.AlertStatus, er
 		})
 	}
 	return alerts, nil
+}
+
+func (c *Collectors) readAlerts(ctx context.Context) ([]alertWire, time.Time, error) {
+	c.alertsMu.Lock()
+	defer c.alertsMu.Unlock()
+	if freshRead(c.now(), c.alertsReadAt, 30*time.Second) {
+		return c.alertsCache, c.alertsReadAt, nil
+	}
+	if c.alertsError != nil && freshRead(c.now(), c.alertsAttemptAt, 30*time.Second) {
+		return nil, time.Time{}, c.alertsError
+	}
+	c.alertsAttemptAt = c.now()
+	var raw []alertWire
+	if err := c.caller.Call(ctx, "alert.list", []any{}, &raw); err != nil {
+		c.alertsError = err
+		return nil, time.Time{}, err
+	}
+	c.alertsError = nil
+	c.alertsCache, c.alertsReadAt = raw, c.now()
+	return raw, c.alertsReadAt, nil
 }
 
 func uintFromJSON(raw json.RawMessage) uint64 {

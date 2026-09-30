@@ -13,9 +13,10 @@ import (
 const maxIntegrationRequestBytes = 64 * 1024
 
 type integrationInput struct {
-	Type    string            `json:"type"`
-	Config  map[string]any    `json:"config"`
-	Secrets map[string]string `json:"secrets"`
+	InstanceID string            `json:"instance_id,omitempty"`
+	Type       string            `json:"type"`
+	Config     map[string]any    `json:"config"`
+	Secrets    map[string]string `json:"secrets"`
 }
 
 func (input integrationInput) candidate() integration.Candidate {
@@ -88,7 +89,7 @@ func (s *server) manageIntegrations(w http.ResponseWriter, request *http.Request
 		if !valid {
 			return
 		}
-		probe, err := s.integrations.TestCandidate(request.Context(), input.candidate())
+		probe, err := s.integrations.TestCandidate(request.Context(), input.candidate(), input.InstanceID)
 		if err != nil && !errors.Is(err, integration.ErrProbeFailed) {
 			writeIntegrationError(w, err)
 			return

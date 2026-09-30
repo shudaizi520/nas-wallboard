@@ -23,6 +23,7 @@ export function startDesktopMode({window, document, ResizeObserver}) {
       type: 'resize',
       width: clampRounded(bounds.width, MIN_WIDTH, MAX_WIDTH),
       height: clampRounded(bounds.height, MIN_HEIGHT, MAX_HEIGHT),
+      ready: panel.dataset?.ready === 'true',
     });
   };
   const hostMessage = (event) => {
@@ -32,11 +33,13 @@ export function startDesktopMode({window, document, ResizeObserver}) {
 
   const observer = new ResizeObserver(reportSize);
   observer.observe(panel);
+  panel.addEventListener('wallboard:rendered', reportSize);
   window.chrome?.webview?.addEventListener?.('message', hostMessage);
   reportSize();
 
   return () => {
     observer.disconnect();
+    panel.removeEventListener('wallboard:rendered', reportSize);
     window.chrome?.webview?.removeEventListener?.('message', hostMessage);
   };
 }

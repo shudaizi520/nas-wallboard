@@ -142,6 +142,13 @@ body {
   white-space: nowrap;
 }
 
+.nas-freshness {
+  flex-shrink: 0;
+  margin-right: 0.5rem;
+  color: var(--warn);
+  font-size: 0.7rem;
+}
+
 .nas-power {
   color: var(--panel-copy);
   font-size: var(--panel-copy-size);

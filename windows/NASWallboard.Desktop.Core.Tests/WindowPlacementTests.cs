@@ -6,6 +6,44 @@ namespace NASWallboard.Desktop.Core.Tests;
 public sealed class WindowPlacementTests
 {
     [TestMethod]
+    public void InitialActualSizeRestoresSavedPositionWithoutBootstrapClamping()
+    {
+        var areas = new[] { new ScreenRect(0, 0, 1920, 1040) };
+        Assert.AreEqual(new ScreenRect(1536, 24, 360, 340),
+            WindowPlacement.Initial(new PixelPoint(1536, 24), 360, 340, areas));
+    }
+
+    [TestMethod]
+    public void ProvisionalBrowserSizesDoNotReplaceSavedPosition()
+    {
+        var areas = new[] { new ScreenRect(0, 0, 1920, 1040) };
+        var saved = new PixelPoint(1536, 24);
+        foreach (var json in new[] {
+            "{\"type\":\"resize\",\"width\":560,\"height\":260,\"ready\":false}",
+            "{\"type\":\"resize\",\"width\":360,\"height\":340,\"ready\":true}" })
+        {
+            Assert.IsTrue(BrowserMessage.TryParse(json, out var message));
+            var size = (ResizeCommand)message!;
+            var bounds = WindowPlacement.Initial(saved, size.Width, size.Height, areas);
+            if (WindowPlacement.ShouldPersist(size.Ready, new PixelPoint(bounds.X, bounds.Y), saved))
+                saved = new PixelPoint(bounds.X, bounds.Y);
+            if (size.Ready) Assert.AreEqual(new ScreenRect(1536, 24, 360, 340), bounds);
+        }
+        Assert.AreEqual(new PixelPoint(1536, 24), saved);
+    }
+
+    [TestMethod]
+    public void InitialPlacementUsesDefaultInsetAndHandlesRemovedMonitor()
+    {
+        var areas = new[] { new ScreenRect(0, 0, 1920, 1040) };
+        Assert.AreEqual(new ScreenRect(1536, 24, 360, 340),
+            WindowPlacement.Initial(new PixelPoint(-1, -1), 360, 340, areas));
+        Assert.AreEqual(new ScreenRect(1560, 24, 360, 340),
+            WindowPlacement.Initial(new PixelPoint(3000, 24), 360, 340, areas));
+        Assert.IsFalse(WindowPlacement.ShouldPersist(false, new PixelPoint(1500, 24), new PixelPoint(1536, 24)));
+    }
+
+    [TestMethod]
     public void DefaultPlacementUsesTheTopRightCornerWithACompactInset()
     {
         var area = new ScreenRect(0, 0, 1920, 1040);

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -210,8 +211,11 @@ func TestSummarizeRainKeepsIsolatedShowerAsLocalPossibility(t *testing.T) {
 func TestWeatherRefreshUsesEachSourceUpdateCadence(t *testing.T) {
 	now := time.Date(2026, time.September, 29, 10, 0, 0, 0, time.UTC)
 	requests := map[string]int{}
+	var requestMu sync.Mutex
 	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requestMu.Lock()
 		requests[request.URL.Path]++
+		requestMu.Unlock()
 		switch request.URL.Path {
 		case "/weather/v1/current/22.54/114.06":
 			return response(http.StatusOK, `{"condition":{"text":"多云","code":"101"},"temperature":{"value":29.4}}`), nil

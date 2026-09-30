@@ -132,11 +132,13 @@ test('every external activity icon has an embedded symbol', async () => {
   }
 });
 
-test('fetch error changes only the connection indicator', () => {
+test('fetch error marks retained values as expired rather than current', () => {
   const connection = {dataset: {tone: 'good'}};
+  const freshness = {textContent: '', hidden: true};
   const cpu = {textContent: '18.4%'};
   const root = {querySelector(selector) {
     if (selector === '[data-bind="connection"]') return connection;
+    if (selector === '[data-bind="freshness"]') return freshness;
     if (selector === '[data-key="cpu"]') return cpu;
     return null;
   }};
@@ -145,4 +147,13 @@ test('fetch error changes only the connection indicator', () => {
 
   assert.equal(connection.dataset.tone, 'bad');
   assert.equal(cpu.textContent, '18.4%');
+  assert.equal(freshness.textContent, '数据过期');
+  assert.equal(freshness.hidden, false);
+});
+
+test('dashboard carries source freshness without modifying metrics', () => {
+  const stale = normalizeDashboard({connection_tone: 'bad', data_status: '数据过期', metrics: [{id: 'cpu', value: '18%'}]});
+  assert.equal(stale.dataStatus, '数据过期');
+  assert.equal(stale.metrics[0].value, '18%');
+  assert.equal(normalizeDashboard({connection_tone: 'good'}).dataStatus, '');
 });

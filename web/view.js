@@ -66,6 +66,7 @@ export function normalizeDashboard(raw = {}) {
   return {
     width,
     connectionTone: raw.connection_tone === 'good' ? 'good' : 'bad',
+    dataStatus: text(raw.data_status),
     uptime: text(raw.uptime),
     nasPower: text(raw.nas_power),
     metrics,
@@ -135,6 +136,11 @@ export function renderDashboard(root, raw) {
   const panel = root.querySelector('.glass-panel');
   panel?.style.setProperty('--panel-width', `${view.width}px`);
   setTone(root.querySelector('[data-bind="connection"]'), view.connectionTone);
+  const freshness = root.querySelector('[data-bind="freshness"]');
+  if (freshness) {
+    freshness.textContent = view.dataStatus;
+    freshness.hidden = view.dataStatus === '';
+  }
   const uptime = root.querySelector('[data-bind="uptime"]');
   if (uptime) {
     if (uptime.textContent !== view.uptime) uptime.textContent = view.uptime;
@@ -192,9 +198,18 @@ export function renderDashboard(root, raw) {
       track?.style.setProperty('--progress', `${item.progress}%`);
     });
   });
+  if (panel) {
+    panel.dataset.ready = 'true';
+    panel.dispatchEvent(new Event('wallboard:rendered'));
+  }
 }
 
 export function renderFetchError(root) {
   const connection = root.querySelector('[data-bind="connection"]');
   if (connection) connection.dataset.tone = 'bad';
+  const freshness = root.querySelector('[data-bind="freshness"]');
+  if (freshness) {
+    freshness.textContent = '数据过期';
+    freshness.hidden = false;
+  }
 }

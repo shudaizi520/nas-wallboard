@@ -98,9 +98,13 @@ func (s *Store) Ready() bool {
 }
 
 func (s *Store) SetSystem(value model.SystemStatus, err error) {
+	s.SetSystemAt(value, err, s.now())
+}
+
+func (s *Store) SetSystemAt(value model.SystemStatus, err error, readAt time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	setModule(&s.system, value, err, s.now())
+	setModule(&s.system, value, err, readAt)
 }
 
 func (s *Store) SetRealtime(value model.RealtimeStatus, err error) {
@@ -137,17 +141,37 @@ func (s *Store) SetApps(value []model.AppStatus, err error) {
 }
 
 func (s *Store) SetAlerts(value []model.AlertStatus, err error) {
+	s.SetAlertsAt(value, err, s.now())
+}
+
+func (s *Store) SetAlertsAt(value []model.AlertStatus, err error, readAt time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err == nil {
 		value = append([]model.AlertStatus(nil), value...)
 	}
-	setModule(&s.alerts, value, err, s.now())
+	setModule(&s.alerts, value, err, readAt)
 }
 
 func (s *Store) SetWeather(value model.WeatherStatus, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if value.Enabled && value.Components != nil {
+		s.weather.Data = cloneWeatherStatus(value)
+		latest := time.Time{}
+		for _, source := range []model.WeatherComponent{value.Components.Current, value.Components.Rain, value.Components.Alerts, value.Components.Forecast} {
+			if source.UpdatedAt.After(latest) {
+				latest = source.UpdatedAt
+			}
+		}
+		s.weather.UpdatedAt = latest
+		s.weather.Error = ""
+		if err != nil {
+			s.weather.Error = publicErrorCode(err)
+		}
+		s.weather.Partial = err != nil && !latest.IsZero()
+		return
+	}
 	if err == nil {
 		value = cloneWeatherStatus(value)
 	}
@@ -212,15 +236,23 @@ func (s *Store) SetDiskHealth(value []model.DiskHealthStatus, err error) {
 }
 
 func (s *Store) SetMemory(value model.MemoryStatus, err error) {
+	s.SetMemoryAt(value, err, s.now())
+}
+
+func (s *Store) SetMemoryAt(value model.MemoryStatus, err error, readAt time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	setModule(&s.memory, value, err, s.now())
+	setModule(&s.memory, value, err, readAt)
 }
 
 func (s *Store) SetTrueNASDiskHealth(value []model.DiskHealthStatus, err error) {
+	s.SetTrueNASDiskHealthAt(value, err, s.now())
+}
+
+func (s *Store) SetTrueNASDiskHealthAt(value []model.DiskHealthStatus, err error, readAt time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	setModule(&s.trueNASDiskHealth, append([]model.DiskHealthStatus(nil), value...), err, s.now())
+	setModule(&s.trueNASDiskHealth, append([]model.DiskHealthStatus(nil), value...), err, readAt)
 }
 
 func (s *Store) SetReplication(value model.ReplicationStatus, err error) {
@@ -280,6 +312,14 @@ func (s *Store) Snapshot() model.Snapshot {
 	snapshot.Apps.Stale = stale(now, snapshot.Apps.UpdatedAt, intervals.Apps)
 	snapshot.Alerts.Stale = stale(now, snapshot.Alerts.UpdatedAt, intervals.Alerts)
 	snapshot.Weather.Stale = stale(now, snapshot.Weather.UpdatedAt, intervals.Weather)
+	if components := snapshot.Weather.Data.Components; components != nil {
+		unavailable := false
+		for _, source := range []*model.WeatherComponent{&components.Current, &components.Rain, &components.Alerts, &components.Forecast} {
+			source.Stale = source.UpdatedAt.IsZero() || now.After(source.ExpiresAt)
+			unavailable = unavailable || source.Stale || source.Error != ""
+		}
+		snapshot.Weather.Partial = unavailable && !snapshot.Weather.UpdatedAt.IsZero()
+	}
 	snapshot.Home.Stale = stale(now, snapshot.Home.UpdatedAt, intervals.Home)
 	snapshot.HomePower.Stale = stale(now, snapshot.HomePower.UpdatedAt, intervals.HomePower)
 	snapshot.Downloads.Stale = stale(now, snapshot.Downloads.UpdatedAt, intervals.Downloads)
@@ -323,6 +363,10 @@ func combineDiskHealth(sources ...model.Module[[]model.DiskHealthStatus]) model.
 }
 
 func cloneWeatherStatus(value model.WeatherStatus) model.WeatherStatus {
+	if value.Components != nil {
+		copy := *value.Components
+		value.Components = &copy
+	}
 	if value.FeelsLike != nil {
 		copy := *value.FeelsLike
 		value.FeelsLike = &copy
