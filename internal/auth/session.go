@@ -279,6 +279,20 @@ func (m *Manager) Close() {
 	clear(m.reauth)
 }
 
+// Reload revokes all sessions and replaces credentials after a data reset or restore.
+func (m *Manager) Reload() error {
+	loaded, err := Open(m.path, m.clock)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.username, m.record = loaded.username, loaded.record
+	clear(m.sessions)
+	clear(m.reauth)
+	return nil
+}
+
 // RollbackInitialPassword removes an administrator record created by an
 // incomplete first-run transaction. It must only be used while setup is not
 // committed in the application state.

@@ -48,6 +48,24 @@ func (s *server) manageIntegrations(w http.ResponseWriter, request *http.Request
 		}
 	}
 	switch {
+	case request.Method == http.MethodPost && len(parts) == 1 && parts[0] == "entities":
+		var input struct {
+			Type       string            `json:"type"`
+			Config     map[string]any    `json:"config"`
+			Secrets    map[string]string `json:"secrets"`
+			InstanceID string            `json:"instance_id"`
+		}
+		if decodeJSON(w, request, maxIntegrationRequestBytes, &input) != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		candidate := integrationInput{Type: input.Type, Config: input.Config, Secrets: input.Secrets}.candidate()
+		entities, err := s.integrations.DiscoverEntities(request.Context(), candidate, input.InstanceID)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "entity_discovery_failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"entities": entities})
 	case request.Method == http.MethodGet && len(parts) == 0:
 		s.manageIntegrationCatalog(w)
 	case request.Method == http.MethodPost && len(parts) == 0:

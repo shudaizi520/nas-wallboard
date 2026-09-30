@@ -75,6 +75,17 @@ func (s *Store) Snapshot() State {
 	return cloneState(s.state)
 }
 
+func (s *Store) Reload() error {
+	loaded, err := Open(s.root)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state = loaded.Snapshot()
+	return nil
+}
+
 func (s *Store) Update(change func(*State) error) error {
 	if change == nil {
 		return errors.New("state update function is required")

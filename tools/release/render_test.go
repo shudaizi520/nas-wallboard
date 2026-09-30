@@ -81,7 +81,7 @@ func TestProductionTemplateKeepsRuntimeConfined(t *testing.T) {
 	text := string(output)
 	for _, required := range []string{
 		"user: \"65532:65532\"", "read_only: true", "cap_drop:", "- ALL",
-		"no-new-privileges:true", "pids_limit: 64", "mem_limit: 128m", "cpus: \"0.50\"",
+		"no-new-privileges:true", "pids_limit: 64", "mem_limit: 512m", "cpus: \"0.50\"",
 		"/data", "/tmp:rw,noexec,nosuid,nodev,size=16m", "condition: service_completed_successfully",
 		"healthcheck", "restart: unless-stopped",
 	} {

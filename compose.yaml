@@ -48,7 +48,9 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 64
-    mem_limit: 128m
+    # age's password-protected backup briefly needs ~256 MiB for scrypt.
+    # Normal polling stays small; this is a ceiling, not reserved memory.
+    mem_limit: 512m
     cpus: "0.50"
     stop_grace_period: 15s
     healthcheck:

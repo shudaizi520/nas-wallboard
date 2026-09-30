@@ -6,6 +6,7 @@ export function settingsSectionDefinitions() {
     {id: 'administrator', primary: 'username', secondary: 'password', danger: false},
     {id: 'diagnostics', primary: 'description', secondary: 'download', danger: false},
     {id: 'encrypted-backup', primary: 'credentials', secondary: 'download', danger: false},
+    {id: 'encrypted-restore', primary: 'backup-file', secondary: 'restore', danger: false},
     {id: 'factory-reset', primary: 'confirmation', secondary: 'delete', danger: true},
   ];
 }
@@ -15,6 +16,13 @@ export function validateBackup(values) {
   if (!values.administrator) errors.administrator = '请输入管理员密码';
   if (length(values.backup) < 12) errors.backup = '备份密码至少 12 个字符';
   return errors;
+}
+
+export function validateRestore(values) {
+ const errors = validateBackup(values);
+ if (!values.file || values.file.size <= 0 || values.file.size > 20 * 1024 * 1024) errors.file = '请选择不超过 20 MB 的完整加密备份';
+ if (values.confirmation !== '恢复 NAS WALLBOARD') errors.confirmation = '请输入完整恢复确认文字';
+ return errors;
 }
 
 export function validatePasswordChange(values) {
@@ -81,6 +89,7 @@ export function createSettingsPage(root, api, documentRef = document) {
   }
   const supportButton = root.querySelector('#download-support');
   const backupForm = root.querySelector('#backup-form');
+  const restoreForm = root.querySelector('#restore-form');
   const usernameForm = root.querySelector('#username-form');
   const passwordForm = root.querySelector('#password-form');
   const resetForm = root.querySelector('#reset-form');
@@ -114,6 +123,20 @@ export function createSettingsPage(root, api, documentRef = document) {
     } catch { report('备份失败，请检查管理员密码', true); }
     finally { backupForm.reset(); }
   });
+  restoreForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const values = {administrator: restoreForm.elements.administrator.value, backup: restoreForm.elements.backup.value, file: restoreForm.elements.file.files[0], confirmation: restoreForm.elements.confirmation.value};
+    const error = firstError(validateRestore(values));
+    if (error) { report(error, true); return; }
+    const button = restoreForm.querySelector('button[type="submit"]'); button.disabled = true;
+    try {
+      report('正在校验并恢复备份，请勿关闭页面…');
+      const token = await api.reauthenticate(values.administrator);
+      await api.restore(values.file, values.backup, values.confirmation, token.token);
+      window.location.replace('/login');
+    } catch { report('恢复失败：请检查备份密码和文件。若已重新载入配置，请重新登录后重试。', true); }
+    finally { button.disabled = false; restoreForm.reset(); }
+  });
   passwordForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const values = {current: passwordForm.elements.current.value, replacement: passwordForm.elements.replacement.value, confirmation: passwordForm.elements.confirmation.value};
@@ -133,6 +156,6 @@ export function createSettingsPage(root, api, documentRef = document) {
       const token = await api.reauthenticate(values.administrator);
       await api.factoryReset(values.confirmation, token.token);
       window.location.replace('/setup');
-    } catch { report('恢复出厂失败；数据没有被删除', true); }
+    } catch { report('恢复出厂未完成，请重新登录后检查配置；不要重复提交。', true); }
   });
 }

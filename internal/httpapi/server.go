@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"example.com/nas-wallboard/internal/auth"
@@ -53,6 +54,8 @@ type Dependencies struct {
 }
 
 type server struct {
+	operationMu        sync.RWMutex
+	recoveryRequired   bool
 	store              *state.Store
 	assets             fs.FS
 	version            string
@@ -107,6 +110,7 @@ func New(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("/api/manage/support", s.manageSupport)
 	mux.HandleFunc("/api/manage/reauth", s.manageReauthenticate)
 	mux.HandleFunc("/api/manage/backup", s.manageBackup)
+	mux.HandleFunc("/api/manage/restore", s.manageRestore)
 	mux.HandleFunc("/api/manage/password", s.managePassword)
 	mux.HandleFunc("/api/manage/username", s.manageUsername)
 	mux.HandleFunc("/api/manage/reset", s.manageReset)
@@ -118,7 +122,20 @@ func New(dependencies Dependencies) http.Handler {
 	mux.HandleFunc("/setup", s.setupPage)
 	mux.HandleFunc("/login", s.loginPage)
 	mux.HandleFunc("/", s.static)
-	return securityHeaders(mux)
+	return securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/manage/reset" || r.URL.Path == "/api/manage/restore" || r.URL.Path == "/api/manage/backup" {
+			s.operationMu.Lock()
+			defer s.operationMu.Unlock()
+		} else {
+			s.operationMu.RLock()
+			defer s.operationMu.RUnlock()
+		}
+		if s.recoveryRequired {
+			writeAPIError(w, http.StatusServiceUnavailable, "data_recovery_required")
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
 }
 
 func (s *server) desktopDownload(w http.ResponseWriter, request *http.Request) {

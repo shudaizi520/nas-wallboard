@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -24,12 +25,58 @@ type Clock interface {
 }
 
 type Runner struct {
-	jobs  []Job
-	clock Clock
+	jobs    []Job
+	clock   Clock
+	mu      sync.RWMutex
+	results map[string]jobResult
+}
+
+var ErrSkipped = errors.New("cached poll; no upstream request")
+
+type jobResult struct {
+	success time.Time
+	failed  bool
+}
+
+func (r *Runner) recordResult(name string, err error) {
+	if errors.Is(err, ErrSkipped) {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	value := r.results[name]
+	value.failed = err != nil
+	if err == nil {
+		value.success = time.Now()
+	}
+	r.results[name] = value
+}
+
+func (r *Runner) CollectionHealth() (bool, string, time.Time) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var latest time.Time
+	waiting, failed := false, false
+	for _, job := range r.jobs {
+		value := r.results[job.Name]
+		if value.success.After(latest) {
+			latest = value.success
+		}
+		every := max(job.Every, job.MinimumEvery)
+		waiting = waiting || value.success.IsZero()
+		failed = failed || value.failed || (!value.success.IsZero() && time.Since(value.success) > max(3*every, 3*time.Minute))
+	}
+	if failed {
+		return false, "采集失败", latest
+	}
+	if waiting {
+		return false, "等待首次采集", latest
+	}
+	return true, "采集正常", latest
 }
 
 func NewRunner(jobs []Job) *Runner {
-	return &Runner{jobs: append([]Job(nil), jobs...), clock: realClock{}}
+	return &Runner{jobs: append([]Job(nil), jobs...), clock: realClock{}, results: map[string]jobResult{}}
 }
 
 func (r *Runner) Run(ctx context.Context) error {
@@ -80,7 +127,8 @@ func (r *Runner) runJob(ctx context.Context, job Job) {
 			return
 		case <-ticker.C():
 			start()
-		case <-done:
+		case err := <-done:
+			r.recordResult(job.Name, err)
 			running = false
 		}
 	}

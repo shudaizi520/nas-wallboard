@@ -39,12 +39,16 @@ func DefaultDashboard(width int) (config.DashboardConfig, dashboard.Availability
 }
 
 func DefaultStaleAfter() state.StaleAfter {
-	return state.StaleAfter{Realtime: 15 * time.Second, Apps: time.Minute, Alerts: time.Minute, System: 2 * time.Minute, Pools: 2 * time.Minute, Disks: 2 * time.Minute, Weather: 30 * time.Minute, Home: time.Minute, HomePower: 15 * time.Second, Downloads: time.Minute, Plex: time.Minute, Jellyfin: time.Minute, Monitors: 2 * time.Minute, DiskHealth: 2 * time.Minute, Memory: 2 * time.Minute, Replication: 2 * time.Minute}
+	return state.StaleAfter{Realtime: 15 * time.Second, Apps: time.Minute, Alerts: time.Minute, System: 2 * time.Minute, Pools: 2 * time.Minute, Disks: 2 * time.Minute, Weather: 30 * time.Minute, Home: time.Minute, HomePower: 15 * time.Second, Downloads: time.Minute, Plex: time.Minute, Jellyfin: time.Minute, Monitors: 2 * time.Minute, DiskHealth: 30 * time.Minute, Memory: 2 * time.Minute, Replication: 2 * time.Minute}
 }
 
 type trueNASRuntime struct {
 	client *truenas.Client
 	runner *collector.Runner
+}
+
+func (r *trueNASRuntime) CollectionHealth() (bool, string, time.Time) {
+	return r.runner.CollectionHealth()
 }
 
 func (runtime *trueNASRuntime) Run(ctx context.Context) error {
@@ -115,7 +119,7 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 			}},
 			{Name: "smart", Every: time.Minute, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
 				value, err := readers.CollectDiskHealth(ctx)
-				options.Store.SetDiskHealth(value, err)
+				options.Store.SetTrueNASDiskHealth(value, err)
 				return err
 			}},
 			{Name: "replication", Every: time.Minute, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
@@ -146,7 +150,11 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 			return nil, err
 		}
 		return job(id, metadata.MinimumRefresh, func(ctx context.Context) error {
+			before := client.RefreshedAt()
 			value, err := client.Refresh(ctx)
+			if err == nil && client.RefreshedAt().Equal(before) {
+				return collector.ErrSkipped
+			}
 			options.Store.SetWeather(value, err)
 			return err
 		}), nil
@@ -230,8 +238,7 @@ func adaptiveDownloads(current downloadCurrent, set func(model.DownloadStatus, e
 	return func(ctx context.Context) error {
 		if hasResult && last.ActiveCount == 0 && remaining > 0 {
 			remaining--
-			set(last, nil)
-			return nil
+			return collector.ErrSkipped
 		}
 		value, err := current(ctx)
 		set(value, err)
@@ -257,8 +264,7 @@ func adaptiveMedia(current mediaCurrent, set func(model.MediaStatus, error), eve
 	return func(ctx context.Context) error {
 		if hasResult && len(last.Sessions) == 0 && remaining > 0 {
 			remaining--
-			set(last, nil)
-			return nil
+			return collector.ErrSkipped
 		}
 		value, err := current(ctx)
 		set(value, err)

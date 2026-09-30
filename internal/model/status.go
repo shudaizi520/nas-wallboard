@@ -9,30 +9,33 @@ type Module[T any] struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Stale     bool      `json:"stale"`
 	Error     string    `json:"error,omitempty"`
+	Partial   bool      `json:"partial,omitempty"`
 }
 
 type Snapshot struct {
-	SchemaVersion int                        `json:"schema_version"`
-	Version       string                     `json:"version"`
-	ServerTime    time.Time                  `json:"server_time"`
-	SnapshotAt    time.Time                  `json:"snapshot_at"`
-	Connected     bool                       `json:"connected"`
-	System        Module[SystemStatus]       `json:"system"`
-	Realtime      Module[RealtimeStatus]     `json:"realtime"`
-	Pools         Module[[]PoolStatus]       `json:"pools"`
-	Disks         Module[[]DiskStatus]       `json:"disks"`
-	Apps          Module[[]AppStatus]        `json:"apps"`
-	Alerts        Module[[]AlertStatus]      `json:"alerts"`
-	Weather       Module[WeatherStatus]      `json:"weather"`
-	Home          Module[FanStatus]          `json:"home"`
-	HomePower     Module[PowerStatus]        `json:"home_power"`
-	Downloads     Module[DownloadStatus]     `json:"downloads"`
-	Plex          Module[MediaStatus]        `json:"plex"`
-	Jellyfin      Module[MediaStatus]        `json:"jellyfin"`
-	Monitors      Module[MonitorStatus]      `json:"monitors"`
-	DiskHealth    Module[[]DiskHealthStatus] `json:"disk_health"`
-	Memory        Module[MemoryStatus]       `json:"memory"`
-	Replication   Module[ReplicationStatus]  `json:"replication"`
+	SchemaVersion      int                        `json:"schema_version"`
+	Version            string                     `json:"version"`
+	ServerTime         time.Time                  `json:"server_time"`
+	SnapshotAt         time.Time                  `json:"snapshot_at"`
+	Connected          bool                       `json:"connected"`
+	System             Module[SystemStatus]       `json:"system"`
+	Realtime           Module[RealtimeStatus]     `json:"realtime"`
+	Pools              Module[[]PoolStatus]       `json:"pools"`
+	Disks              Module[[]DiskStatus]       `json:"disks"`
+	Apps               Module[[]AppStatus]        `json:"apps"`
+	Alerts             Module[[]AlertStatus]      `json:"alerts"`
+	Weather            Module[WeatherStatus]      `json:"weather"`
+	Home               Module[FanStatus]          `json:"home"`
+	HomePower          Module[PowerStatus]        `json:"home_power"`
+	Downloads          Module[DownloadStatus]     `json:"downloads"`
+	Plex               Module[MediaStatus]        `json:"plex"`
+	Jellyfin           Module[MediaStatus]        `json:"jellyfin"`
+	Monitors           Module[MonitorStatus]      `json:"monitors"`
+	DiskHealth         Module[[]DiskHealthStatus] `json:"disk_health"`
+	TrueNASDiskHealth  Module[[]DiskHealthStatus] `json:"truenas_disk_health"`
+	ScrutinyDiskHealth Module[[]DiskHealthStatus] `json:"scrutiny_disk_health"`
+	Memory             Module[MemoryStatus]       `json:"memory"`
+	Replication        Module[ReplicationStatus]  `json:"replication"`
 }
 
 type SystemStatus struct {

@@ -248,6 +248,14 @@ func TestWeatherRefreshUsesEachSourceUpdateCadence(t *testing.T) {
 		if !got.Enabled || got.Temperature != 29.4 || got.RainSummary != "未来2小时无明显降雨" || len(got.Forecasts) != 2 {
 			t.Fatalf("Refresh() at tick %d = %#v", tick, got)
 		}
+		stamp := client.RefreshedAt()
+		if !stamp.Equal(now) {
+			t.Fatal("successful source refresh timestamp missing")
+		}
+		// A scheduler tick just before the next interval has no upstream work.
+		if _, err := client.Refresh(context.Background()); err != nil || !client.RefreshedAt().Equal(stamp) {
+			t.Fatal("cached refresh replaced last request time")
+		}
 		now = now.Add(5 * time.Minute)
 	}
 

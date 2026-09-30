@@ -178,6 +178,7 @@ func DecryptBackup(input io.Reader, password string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	identity.SetMaxWorkFactor(18)
 	reader, err := age.Decrypt(input, identity)
 	if err != nil {
 		return nil, err
@@ -206,6 +207,9 @@ func buildBackupArchive(root string) ([]byte, error) {
 			return nil
 		}
 		if item.IsDir() {
+			if strings.HasPrefix(item.Name(), ".wallboard-") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !item.Type().IsRegular() {
@@ -265,13 +269,11 @@ func FactoryReset(root, confirmation string) error {
 	if err != nil {
 		return err
 	}
-	allowed := []string{"state.json", "auth.json", "setup.pending.json", "dashboard.json", "secrets", "backups"}
-	for _, name := range allowed {
-		if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
-			return err
-		}
+	tx, err := BeginReset(root)
+	if err != nil {
+		return err
 	}
-	return nil
+	return tx.Commit()
 }
 
 func validateDataRoot(root string, requireState bool) (string, error) {
