@@ -36,22 +36,23 @@ type Store struct {
 	now        func() time.Time
 	connected  bool
 
-	system      model.Module[model.SystemStatus]
-	realtime    model.Module[model.RealtimeStatus]
-	pools       model.Module[[]model.PoolStatus]
-	disks       model.Module[[]model.DiskStatus]
-	apps        model.Module[[]model.AppStatus]
-	alerts      model.Module[[]model.AlertStatus]
-	weather     model.Module[model.WeatherStatus]
-	home        model.Module[model.FanStatus]
-	homePower   model.Module[model.PowerStatus]
-	downloads   model.Module[model.DownloadStatus]
-	plex        model.Module[model.MediaStatus]
-	jellyfin    model.Module[model.MediaStatus]
-	monitors    model.Module[model.MonitorStatus]
-	diskHealth  model.Module[[]model.DiskHealthStatus]
-	memory      model.Module[model.MemoryStatus]
-	replication model.Module[model.ReplicationStatus]
+	system            model.Module[model.SystemStatus]
+	realtime          model.Module[model.RealtimeStatus]
+	pools             model.Module[[]model.PoolStatus]
+	disks             model.Module[[]model.DiskStatus]
+	apps              model.Module[[]model.AppStatus]
+	alerts            model.Module[[]model.AlertStatus]
+	weather           model.Module[model.WeatherStatus]
+	home              model.Module[model.FanStatus]
+	homePower         model.Module[model.PowerStatus]
+	downloads         model.Module[model.DownloadStatus]
+	plex              model.Module[model.MediaStatus]
+	jellyfin          model.Module[model.MediaStatus]
+	monitors          model.Module[model.MonitorStatus]
+	diskHealth        model.Module[[]model.DiskHealthStatus]
+	trueNASDiskHealth model.Module[[]model.DiskHealthStatus]
+	memory            model.Module[model.MemoryStatus]
+	replication       model.Module[model.ReplicationStatus]
 }
 
 func New(version string, staleAfter StaleAfter, now func() time.Time) *Store {
@@ -65,6 +66,29 @@ func (s *Store) Connected(connected bool) {
 	s.mu.Lock()
 	s.connected = connected
 	s.mu.Unlock()
+}
+
+func (s *Store) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.connected = false
+	s.system = model.Module[model.SystemStatus]{}
+	s.realtime = model.Module[model.RealtimeStatus]{}
+	s.pools = model.Module[[]model.PoolStatus]{}
+	s.disks = model.Module[[]model.DiskStatus]{}
+	s.apps = model.Module[[]model.AppStatus]{}
+	s.alerts = model.Module[[]model.AlertStatus]{}
+	s.weather = model.Module[model.WeatherStatus]{}
+	s.home = model.Module[model.FanStatus]{}
+	s.homePower = model.Module[model.PowerStatus]{}
+	s.downloads = model.Module[model.DownloadStatus]{}
+	s.plex = model.Module[model.MediaStatus]{}
+	s.jellyfin = model.Module[model.MediaStatus]{}
+	s.monitors = model.Module[model.MonitorStatus]{}
+	s.diskHealth = model.Module[[]model.DiskHealthStatus]{}
+	s.trueNASDiskHealth = model.Module[[]model.DiskHealthStatus]{}
+	s.memory = model.Module[model.MemoryStatus]{}
+	s.replication = model.Module[model.ReplicationStatus]{}
 }
 
 func (s *Store) Ready() bool {
@@ -193,6 +217,12 @@ func (s *Store) SetMemory(value model.MemoryStatus, err error) {
 	setModule(&s.memory, value, err, s.now())
 }
 
+func (s *Store) SetTrueNASDiskHealth(value []model.DiskHealthStatus, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	setModule(&s.trueNASDiskHealth, append([]model.DiskHealthStatus(nil), value...), err, s.now())
+}
+
 func (s *Store) SetReplication(value model.ReplicationStatus, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -203,27 +233,29 @@ func (s *Store) Snapshot() model.Snapshot {
 	s.mu.RLock()
 	now := s.now()
 	snapshot := model.Snapshot{
-		SchemaVersion: model.SchemaVersion,
-		Version:       s.version,
-		ServerTime:    now,
-		SnapshotAt:    now,
-		Connected:     s.connected,
-		System:        s.system,
-		Realtime:      s.realtime,
-		Pools:         s.pools,
-		Disks:         s.disks,
-		Apps:          s.apps,
-		Alerts:        s.alerts,
-		Weather:       s.weather,
-		Home:          s.home,
-		HomePower:     s.homePower,
-		Downloads:     s.downloads,
-		Plex:          s.plex,
-		Jellyfin:      s.jellyfin,
-		Monitors:      s.monitors,
-		DiskHealth:    s.diskHealth,
-		Memory:        s.memory,
-		Replication:   s.replication,
+		SchemaVersion:      model.SchemaVersion,
+		Version:            s.version,
+		ServerTime:         now,
+		SnapshotAt:         now,
+		Connected:          s.connected,
+		System:             s.system,
+		Realtime:           s.realtime,
+		Pools:              s.pools,
+		Disks:              s.disks,
+		Apps:               s.apps,
+		Alerts:             s.alerts,
+		Weather:            s.weather,
+		Home:               s.home,
+		HomePower:          s.homePower,
+		Downloads:          s.downloads,
+		Plex:               s.plex,
+		Jellyfin:           s.jellyfin,
+		Monitors:           s.monitors,
+		DiskHealth:         s.diskHealth,
+		ScrutinyDiskHealth: s.diskHealth,
+		TrueNASDiskHealth:  s.trueNASDiskHealth,
+		Memory:             s.memory,
+		Replication:        s.replication,
 	}
 	snapshot.Pools.Data = append([]model.PoolStatus(nil), s.pools.Data...)
 	snapshot.Disks.Data = append([]model.DiskStatus(nil), s.disks.Data...)
@@ -236,6 +268,8 @@ func (s *Store) Snapshot() model.Snapshot {
 	snapshot.Monitors.Data = cloneMonitorStatus(s.monitors.Data)
 	snapshot.Weather.Data = cloneWeatherStatus(s.weather.Data)
 	snapshot.DiskHealth.Data = append([]model.DiskHealthStatus(nil), s.diskHealth.Data...)
+	snapshot.ScrutinyDiskHealth.Data = append([]model.DiskHealthStatus(nil), s.diskHealth.Data...)
+	snapshot.TrueNASDiskHealth.Data = append([]model.DiskHealthStatus(nil), s.trueNASDiskHealth.Data...)
 	intervals := s.staleAfter
 	s.mu.RUnlock()
 
@@ -253,9 +287,39 @@ func (s *Store) Snapshot() model.Snapshot {
 	snapshot.Jellyfin.Stale = stale(now, snapshot.Jellyfin.UpdatedAt, intervals.Jellyfin)
 	snapshot.Monitors.Stale = stale(now, snapshot.Monitors.UpdatedAt, intervals.Monitors)
 	snapshot.DiskHealth.Stale = stale(now, snapshot.DiskHealth.UpdatedAt, intervals.DiskHealth)
+	snapshot.ScrutinyDiskHealth.Stale = snapshot.DiskHealth.Stale
+	snapshot.TrueNASDiskHealth.Stale = stale(now, snapshot.TrueNASDiskHealth.UpdatedAt, intervals.Alerts)
+	snapshot.DiskHealth = combineDiskHealth(snapshot.ScrutinyDiskHealth, snapshot.TrueNASDiskHealth)
 	snapshot.Memory.Stale = stale(now, snapshot.Memory.UpdatedAt, intervals.Memory)
 	snapshot.Replication.Stale = stale(now, snapshot.Replication.UpdatedAt, intervals.Replication)
 	return snapshot
+}
+
+func combineDiskHealth(sources ...model.Module[[]model.DiskHealthStatus]) model.Module[[]model.DiskHealthStatus] {
+	result := model.Module[[]model.DiskHealthStatus]{}
+	found := false
+	for _, source := range sources {
+		if source.UpdatedAt.IsZero() && source.Error == "" {
+			continue
+		}
+		found = true
+		if source.Stale || source.Error != "" {
+			result.Stale = result.Stale || source.Stale
+			if source.Error != "" {
+				result.Error = source.Error
+			}
+		} else {
+			result.Data = append(result.Data, source.Data...)
+		}
+		if source.UpdatedAt.After(result.UpdatedAt) {
+			result.UpdatedAt = source.UpdatedAt
+		}
+	}
+	if !found {
+		result.Stale = true
+	}
+	result.Partial = len(result.Data) > 0 && (result.Stale || result.Error != "")
+	return result
 }
 
 func cloneWeatherStatus(value model.WeatherStatus) model.WeatherStatus {

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -173,11 +174,62 @@ func (s *server) manageReset(w http.ResponseWriter, request *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	if err := support.FactoryReset(s.dataRoot, input.Confirmation); err != nil {
+	if input.Confirmation != support.ResetConfirmation {
 		writeAPIError(w, http.StatusBadRequest, "reset_failed")
 		return
 	}
-	s.auth.Close()
+	before := s.configState.Snapshot().Integrations
+	if s.integrationRuntime != nil {
+		if err := s.integrationRuntime.Apply(request.Context(), before, nil); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "reset_failed")
+			return
+		}
+	}
+	tx, err := support.BeginReset(s.dataRoot)
+	if err != nil {
+		if tx != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				s.recoveryRequired = true
+				writeAPIError(w, http.StatusServiceUnavailable, "reset_recovery_required")
+				return
+			}
+			if reloadErr := s.reloadData(); reloadErr != nil {
+				s.recoveryRequired = true
+				writeAPIError(w, http.StatusServiceUnavailable, "reset_recovery_required")
+				return
+			}
+		}
+		if s.integrationRuntime != nil {
+			_ = s.integrationRuntime.Apply(context.Background(), nil, before)
+		}
+		writeAPIError(w, http.StatusBadRequest, "reset_failed")
+		return
+	}
+	err = s.reloadData()
+	if err == nil {
+		err = request.Context().Err()
+	}
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err != nil {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			s.recoveryRequired = true
+			writeAPIError(w, http.StatusServiceUnavailable, "reset_recovery_required")
+			return
+		}
+		if reloadErr := s.reloadData(); reloadErr != nil {
+			s.recoveryRequired = true
+			writeAPIError(w, http.StatusServiceUnavailable, "reset_recovery_required")
+			return
+		}
+		if s.integrationRuntime != nil {
+			_ = s.integrationRuntime.Apply(context.Background(), nil, before)
+		}
+		writeAPIError(w, http.StatusInternalServerError, "reset_failed")
+		return
+	}
+	s.store.Reset()
 	expireSessionCookie(w, request)
 	w.WriteHeader(http.StatusNoContent)
 }

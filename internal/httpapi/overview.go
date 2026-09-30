@@ -25,6 +25,17 @@ func (s *server) manageOverview(w http.ResponseWriter, request *http.Request) {
 	if reader, ok := s.integrationRuntime.(runtimeHealthReader); ok {
 		health = reader.Health()
 	}
+	active := map[string]bool{}
+	for _, item := range configured.Integrations {
+		active[item.ID] = item.Enabled
+	}
+	filtered := health[:0]
+	for _, item := range health {
+		if active[item.InstanceID] {
+			filtered = append(filtered, item)
+		}
+	}
+	health = filtered
 	uptime := s.clock().Sub(s.startedAt)
 	if uptime < 0 {
 		uptime = 0
@@ -36,7 +47,7 @@ func (s *server) manageOverview(w http.ResponseWriter, request *http.Request) {
 			"version":        runtime.System.Data.Version,
 			"uptime_seconds": runtime.System.Data.UptimeSeconds,
 			"connected":      runtime.Connected,
-			"last_update":    runtime.SnapshotAt,
+			"last_update":    runtime.Realtime.UpdatedAt,
 		},
 		"integrations": health,
 		"migration": map[string]any{

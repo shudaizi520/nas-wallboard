@@ -123,6 +123,22 @@
               </form></div>
             </details></div>
           </section>
+        <section class="settings-section" data-settings-section="encrypted-restore" aria-labelledby="restore-heading">
+          <div class="section-label"><h2 id="restore-heading">恢复加密备份</h2></div>
+          <div class="section-content"><details class="operation-disclosure" data-operation-disclosure>
+            <summary><span>从完整备份恢复设置与凭据</span></summary>
+            <div class="operation-disclosure-body"><form id="restore-form" class="compact-form">
+              <p>将覆盖当前 Wallboard 配置，不修改 NAS 或 Home Assistant。恢复后用备份中的账号登录；建议先下载当前备份。</p>
+              <div class="field-grid">
+                <label>当前管理员密码<input name="administrator" type="password" autocomplete="current-password"></label>
+                <label>备份密码<input name="backup" type="password" autocomplete="off"></label>
+                <label>完整加密备份<input name="file" type="file" accept=".age"></label>
+                <label>输入“恢复 NAS WALLBOARD”确认<input name="confirmation" type="text" autocomplete="off"></label>
+              </div>
+              <button type="submit">校验并恢复</button>
+            </form></div>
+          </details></div>
+        </section>
         </section>
 
         <section class="settings-group danger-group" aria-labelledby="danger-zone-heading">

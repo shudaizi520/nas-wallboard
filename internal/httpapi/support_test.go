@@ -78,8 +78,8 @@ func TestReauthenticationBackupPasswordChangeAndFactoryReset(t *testing.T) {
 	if reset.Code != http.StatusNoContent {
 		t.Fatalf("reset = %d %q", reset.Code, reset.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(fixture.root, "state.json")); !os.IsNotExist(err) {
-		t.Fatalf("state survived reset: %v", err)
+	if fixture.state.Snapshot().SetupComplete || fixture.auth.Configured() {
+		t.Fatal("configuration survived reset")
 	}
 }
 

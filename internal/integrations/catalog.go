@@ -29,7 +29,14 @@ type builtInDefinition struct {
 	runtime      *RuntimeOptions
 }
 
-func (definition builtInDefinition) ID() string                     { return definition.id }
+func (definition builtInDefinition) ID() string { return definition.id }
+func (definition builtInDefinition) DiscoverEntities(ctx context.Context, settings integration.Config, secrets integration.Secrets) ([]integration.EntityChoice, error) {
+	if definition.id != "home_assistant" {
+		return nil, errors.New("discovery unavailable")
+	}
+	client := homeassistant.New(config.HomeAssistantConfig{URL: stringSetting(settings, "url", "")}, secretString(secrets, "token"), nil)
+	return client.Entities(ctx)
+}
 func (definition builtInDefinition) Metadata() integration.Metadata { return definition.metadata }
 func (definition builtInDefinition) Fields() []integration.Field {
 	return append([]integration.Field(nil), definition.fields...)

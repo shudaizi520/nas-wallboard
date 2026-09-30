@@ -562,6 +562,9 @@ test('management overview and recovery settings are clear without exposing secre
   await expect(page.getByText('最近刷新', {exact: false})).toHaveCount(0);
   await page.getByRole('tab', {name: '设置与恢复'}).click();
   await expect(page.getByRole('heading', {name: '完整加密备份'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: '恢复加密备份'})).toBeVisible();
+  await page.getByText('从完整备份恢复设置与凭据', {exact:true}).click();
+  await expect(page.locator('#restore-form input[name="file"]')).toBeVisible();
   await page.getByText('删除 Wallboard 配置', {exact: true}).first().click();
   await expect(page.getByText(/不会删除 TrueNAS 数据/)).toBeVisible();
   expect(await page.locator('body').textContent()).not.toContain('correct horse battery staple');
@@ -945,4 +948,32 @@ test('integration center adds, retains masked token, and disables Plex without r
   const disabledDashboard = await page.evaluate(async () => (await fetch('/api/dashboard')).json());
   expect(disabledDashboard.activities.some((item) => item.id === 'plex')).toBe(false);
   mockPlexVisible = true;
+});
+
+test('Home Assistant discovery lists separate fan and wattage choices without requiring a selected fan', async ({page}) => {
+  sessionValid = true; setupRequired = false;
+  const definition = {id:'home_assistant',metadata:{name:'Home Assistant 设备',category:'devices',description:'选择家中的设备'},fields:[
+    {key:'url',kind:'url',label:'服务地址',required:true},
+    {key:'entity_id',kind:'entity_id',label:'风扇实体',required:true},
+    {key:'power_entity_id',kind:'entity_id',label:'NAS 功耗实体'},
+    {key:'token',kind:'secret',label:'长期令牌',required:true},
+  ]};
+  await page.route('**/api/manage/integrations',route=>route.fulfill({json:{catalog:[definition],instances:[],health:[]}}));
+  await page.route('**/api/manage/integrations/entities',async route=>{
+    const request=route.request().postDataJSON();
+    expect(request.config.entity_id).toBeUndefined();
+    expect(request.secrets.token).toBe('local-test-token');
+    await route.fulfill({json:{entities:[{id:'fan.room',name:'客厅风扇',kind:'fan'},{id:'sensor.nas_power',name:'NAS功耗',kind:'power',unit:'W'}]}});
+  });
+  await page.goto(`${baseURL}/manage`,{waitUntil:'networkidle'});
+  await page.getByRole('tab',{name:'集成'}).click();
+  await page.locator('[data-integration="home_assistant"]').getByRole('button',{name:'添加'}).click();
+  await page.locator('[name="url"]').fill('http://ha.local:8123');
+  await page.locator('[name="token"]').fill('local-test-token');
+  await page.getByRole('button',{name:'读取风扇与功耗设备'}).click();
+  await expect(page.locator('#ha-options-entity_id option')).toHaveCount(1);
+  await expect(page.locator('#ha-options-entity_id option')).toHaveAttribute('value','fan.room');
+  await expect(page.locator('#ha-options-power_entity_id option')).toHaveAttribute('value','sensor.nas_power');
+  await page.locator('[name="entity_id"]').fill('fan.manual');
+  await expect(page.locator('[name="entity_id"]')).toHaveValue('fan.manual');
 });

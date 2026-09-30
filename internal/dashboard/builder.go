@@ -113,7 +113,11 @@ func (b *Builder) Build(snapshot model.Snapshot, now time.Time) View {
 		case config.MetricTypeCPUTemperature:
 			view.Metrics = append(view.Metrics, cpuTemperatureMetric(snapshot.Realtime))
 		case config.MetricTypeDiskTemperature:
-			view.Metrics = append(view.Metrics, diskMetric(snapshot.Disks, snapshot.DiskHealth, configured.Match, legacyDiskMode))
+			health := snapshot.DiskHealth
+			if !snapshot.ScrutinyDiskHealth.UpdatedAt.IsZero() {
+				health = snapshot.ScrutinyDiskHealth
+			}
+			view.Metrics = append(view.Metrics, diskMetric(snapshot.Disks, health, configured.Match, legacyDiskMode))
 		case config.MetricTypeNetwork:
 			view.Metrics = append(view.Metrics, networkMetric(snapshot.Realtime))
 		case config.MetricTypePoolCapacity:
@@ -385,7 +389,7 @@ func memoryPressureActivity(module model.Module[model.MemoryStatus], configured 
 }
 
 func smartExceptionsActivity(module model.Module[[]model.DiskHealthStatus]) (Activity, bool) {
-	if module.Stale || module.Error != "" {
+	if (module.Stale || module.Error != "") && !module.Partial {
 		return Activity{ID: "smart-exceptions", Icon: "disk", Tone: "bad", Title: "硬盘健康", Value: "不可用"}, true
 	}
 	failed, unknown := 0, 0
@@ -399,6 +403,9 @@ func smartExceptionsActivity(module model.Module[[]model.DiskHealthStatus]) (Act
 		}
 	}
 	if failed == 0 && unknown == 0 {
+		if module.Stale || module.Error != "" {
+			return Activity{ID: "smart-exceptions", Icon: "disk", Tone: "bad", Title: "硬盘健康", Value: "部分数据不可用"}, true
+		}
 		return Activity{}, false
 	}
 	activity := Activity{ID: "smart-exceptions", Icon: "disk", Tone: "warn", Title: "硬盘健康"}
@@ -410,6 +417,9 @@ func smartExceptionsActivity(module model.Module[[]model.DiskHealthStatus]) (Act
 	}
 	if unknown > 0 && failed > 0 {
 		activity.Detail = fmt.Sprintf("另有 %d 个状态未知", unknown)
+	}
+	if module.Stale || module.Error != "" {
+		activity.Detail = strings.TrimSpace(activity.Detail + " 部分数据不可用")
 	}
 	return activity, true
 }
@@ -542,6 +552,16 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 			detail = summary
 			tone = warningTone
 		}
+	}
+	if !dry {
+		if hazard := weatherHazardDetail(weather); hazard != "" && !strings.Contains(detail, hazard) {
+			detail = strings.TrimSpace(detail + " · " + hazard)
+			if tone == "active" {
+				tone = "warn"
+			}
+		}
+	} else if hazard := weatherHazardDetail(weather); hazard != "" && !strings.Contains(detail, hazard) {
+		detail += " · " + hazard
 	}
 	return Activity{ID: "weather", Icon: weatherIcon(weather.ConditionCode), Tone: tone, Value: value, Detail: detail}, true
 }

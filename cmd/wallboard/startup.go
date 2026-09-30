@@ -8,6 +8,7 @@ import (
 
 	"example.com/nas-wallboard/internal/migrate"
 	"example.com/nas-wallboard/internal/persist"
+	"example.com/nas-wallboard/internal/support"
 )
 
 type startupMode string
@@ -35,6 +36,9 @@ type startupSelection struct {
 }
 
 func selectStartup(ctx context.Context, paths startupPaths) (startupSelection, error) {
+	if err := support.RecoverReplacement(paths.DataRoot); err != nil {
+		return startupSelection{}, err
+	}
 	statePath := filepath.Join(paths.DataRoot, "state.json")
 	_, stateErr := os.Lstat(statePath)
 	stateExists := stateErr == nil

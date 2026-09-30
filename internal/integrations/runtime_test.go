@@ -3,11 +3,13 @@ package integrations
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"example.com/nas-wallboard/internal/collector"
 	"example.com/nas-wallboard/internal/integration"
 	"example.com/nas-wallboard/internal/model"
 	"example.com/nas-wallboard/internal/state"
@@ -28,7 +30,7 @@ func TestAdaptiveDownloadsPollsOncePerMinuteWhenIdleAndEveryTickWhenActive(t *te
 		t.Fatal(err)
 	}
 	for range 3 {
-		if err := run(context.Background()); err != nil {
+		if err := run(context.Background()); !errors.Is(err, collector.ErrSkipped) {
 			t.Fatal(err)
 		}
 	}

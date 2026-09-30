@@ -64,7 +64,7 @@ test('username change validates identifiers and clears the current password', ()
 
 test('settings sections keep account, diagnostics, backup, and reset order with scoped danger', () => {
 	const sections = settingsSectionDefinitions();
-	assert.deepEqual(sections.map((section) => section.id), ['administrator', 'diagnostics', 'encrypted-backup', 'factory-reset']);
+	assert.deepEqual(sections.map((section) => section.id), ['administrator', 'diagnostics', 'encrypted-backup', 'encrypted-restore', 'factory-reset']);
 	assert.deepEqual(sections.filter((section) => section.danger).map((section) => section.id), ['factory-reset']);
 	assert.equal(sections[0].primary, 'username');
 	assert.equal(sections[0].secondary, 'password');

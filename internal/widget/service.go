@@ -33,6 +33,15 @@ func NewService(registry *Registry, store *persist.Store) *Service {
 	return &Service{registry: registry, store: store}
 }
 
+func (s *Service) ValidateRestored(store *persist.Store) (config.DashboardConfig, error) {
+	candidate := NewService(s.registry, store)
+	layout := Layout{Width: candidate.Layout().Width, Widgets: store.Snapshot().Widgets}
+	if err := candidate.update(layout, true); err != nil {
+		return config.DashboardConfig{}, err
+	}
+	return candidate.DashboardConfig(config.DashboardConfig{})
+}
+
 func (s *Service) AddIntegrationDefaults(state *persist.State, instance persist.Integration) error {
 	definitions := defaultWidgetsByIntegration[instance.Type]
 	integrationTypes := make(map[string]string, len(state.Integrations))
@@ -166,13 +175,17 @@ func (s *Service) Layout() Layout {
 	return Layout{Width: width, Widgets: widgets}
 }
 func (s *Service) Update(layout Layout) error {
+	return s.update(layout, false)
+}
+
+func (s *Service) update(layout Layout, allowDisabled bool) error {
 	if layout.Width < 300 || layout.Width > 720 {
 		return errors.New("width must be between 300 and 720")
 	}
 	state := s.store.Snapshot()
 	sources := map[string]string{}
 	for _, item := range state.Integrations {
-		if item.Enabled {
+		if item.Enabled || allowDisabled {
 			sources[item.ID] = item.Type
 		}
 	}

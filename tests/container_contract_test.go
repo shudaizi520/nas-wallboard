@@ -116,7 +116,7 @@ func TestLocalComposeMatchesRuntimeSecurityContract(t *testing.T) {
 	if !equalStrings(wallboard.CapDrop, []string{"ALL"}) || !contains(wallboard.SecurityOpt, "no-new-privileges:true") {
 		t.Fatalf("runtime security = %#v / %#v", wallboard.CapDrop, wallboard.SecurityOpt)
 	}
-	if !containsPart(wallboard.Tmpfs, "/tmp") || !containsPart(wallboard.Tmpfs, "noexec") || wallboard.PidsLimit != 64 || wallboard.MemLimit != "128m" || wallboard.CPUs != "0.50" {
+	if !containsPart(wallboard.Tmpfs, "/tmp") || !containsPart(wallboard.Tmpfs, "noexec") || wallboard.PidsLimit != 64 || wallboard.MemLimit != "512m" || wallboard.CPUs != "0.50" {
 		t.Fatalf("runtime limits = %#v", wallboard)
 	}
 	if !contains(wallboard.Healthcheck.Test, "healthcheck") {

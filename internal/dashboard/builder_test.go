@@ -143,7 +143,7 @@ func TestWeatherActivityShowsRainInsteadOfComfortWhenRainIsApproaching(t *testin
 		WindScale: intPointer(7), UVIndex: float64Pointer(10),
 		Condition: "多云", ConditionCode: "101", RainSummary: "约半小时后可能有雨",
 	}})
-	want := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "约半小时后可能有雨"}
+	want := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "warn", Value: "29° · 多云", Detail: "约半小时后可能有雨 · 强风7级 · 紫外线10"}
 	if !ok || got != want {
 		t.Fatalf("weather activity = %#v, %v; want %#v, true", got, ok, want)
 	}
@@ -221,7 +221,7 @@ func TestBuilderHighlightsSMARTFailureAndWeatherWarning(t *testing.T) {
 	if len(view.Metrics) != 1 || view.Metrics[0] != (Metric{ID: "disk_temperature", Icon: "disk", Value: "42° · SMART", Tone: "bad"}) {
 		t.Fatalf("metrics = %#v", view.Metrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", Value: "31° · 雷阵雨", Detail: "高温黄色预警"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", Value: "31° · 雷阵雨", Detail: "高温黄色预警 · 强风7级 · 紫外线10"}
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
 	}

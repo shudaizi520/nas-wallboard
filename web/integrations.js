@@ -2,6 +2,12 @@ import {createSettingsSection} from './manage-ui.js';
 
 export const MASKED_SECRET = '********';
 
+export function entityOptions(entities, kind, current) {
+  const options = entities.filter((item) => item.kind === kind);
+  if (current && !options.some((item) => item.id === current)) options.unshift({id:current,name:'当前/手动实体',kind});
+  return options;
+}
+
 export function orderedCatalog(catalog = []) {
   return [...catalog].sort((a, b) => a.metadata.category.localeCompare(b.metadata.category, 'zh-CN') || a.metadata.name.localeCompare(b.metadata.name, 'zh-CN') || a.id.localeCompare(b.id));
 }
@@ -187,6 +193,32 @@ export function createIntegrationCenter(root, api) {
     const probe = document.createElement('button'); probe.type = 'button'; probe.textContent = '测试连接';
     const save = document.createElement('button'); save.type = 'submit'; save.className = 'primary'; save.textContent = '保存';
     buttons.append(cancel, probe, save); form.append(result, buttons);
+    if (definition.id === 'home_assistant') {
+      const discover = document.createElement('button'); discover.type = 'button'; discover.textContent = '读取风扇与功耗设备';
+      buttons.insertBefore(discover, probe);
+      const signal = controller.signal;
+      discover.addEventListener('click', async () => {
+        const {candidate, errors} = candidateFromForm(definition, form, instance);
+        delete errors.entity_id; delete errors.power_entity_id;
+        if (Object.keys(errors).length) { result.textContent = Object.values(errors)[0]; return; }
+        discover.disabled = true; probe.disabled = true; save.disabled = true; result.textContent = '正在读取设备…';
+        try {
+          const {entities} = await api.entities(candidate, instance?.id, signal);
+          if (signal.aborted) return;
+          for (const [key, kind] of [['entity_id','fan'],['power_entity_id','power']]) {
+            const control = form.elements.namedItem(key); const id = `ha-options-${key}`;
+            form.querySelector(`#${id}`)?.remove();
+            const list = document.createElement('datalist'); list.id = id;
+            for (const item of entityOptions(entities, kind, control.value)) {
+              const option = document.createElement('option'); option.value = item.id; option.label = item.name; list.append(option);
+            }
+            control.setAttribute('list', id); form.append(list);
+          }
+          result.textContent = `已读取 ${entities.length} 个设备，请在实体输入框的下拉列表中选择；也可手动填写。`;
+        } catch (error) { if (error.name !== 'AbortError') result.textContent = '设备读取失败，请检查地址和令牌；仍可手动填写实体。'; }
+        finally { discover.disabled = false; probe.disabled = false; save.disabled = false; }
+      });
+    }
     const read = () => { const value = candidateFromForm(definition, form, instance); form.querySelectorAll('[data-error]').forEach((node) => { node.textContent = value.errors[node.dataset.error] ?? ''; }); return value; };
     probe.addEventListener('click', async () => { const {candidate, errors} = read(); if (Object.keys(errors).length) return; probe.disabled = true; result.textContent = '正在测试连接…'; try { const response = await api.probe(candidate, controller.signal); result.textContent = response.message || '连接成功'; } catch (error) { if (error.name !== 'AbortError') result.textContent = error.data?.probe?.message || (error.code === 'probe_failed' ? '连接测试失败' : '无法完成测试'); } finally { probe.disabled = false; } });
     form.onsubmit = async (event) => { event.preventDefault(); const {candidate, errors} = read(); if (Object.keys(errors).length) return; save.disabled = true; try { if (instance) await api.update(instance.id, candidate); else await api.create(candidate); close(); await load(); } catch (error) { result.textContent = error.data?.probe?.message || (error.code === 'probe_failed' ? '连接测试失败，未保存' : '保存失败，请检查字段'); save.disabled = false; } };

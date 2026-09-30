@@ -127,6 +127,18 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 	return next.status, nil
 }
 
+// RefreshedAt is the last successful upstream component refresh, not the last
+// call to Refresh. Cached scheduler ticks must not change collection freshness.
+func (c *Client) RefreshedAt() time.Time {
+	latest := c.cache.currentAt
+	for _, stamp := range []time.Time{c.cache.rainAt, c.cache.alertsAt, c.cache.forecastAt} {
+		if stamp.After(latest) {
+			latest = stamp
+		}
+	}
+	return latest
+}
+
 func (c *Client) emptyStatus() model.WeatherStatus {
 	return model.WeatherStatus{
 		Enabled: true, Name: strings.TrimSpace(c.cfg.Name), Warnings: []model.WeatherWarning{},

@@ -15,12 +15,13 @@ import (
 )
 
 type RuntimeHealth struct {
-	InstanceID string    `json:"instance_id"`
-	Type       string    `json:"type"`
-	Running    bool      `json:"running"`
-	Healthy    bool      `json:"healthy"`
-	Message    string    `json:"message"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	InstanceID  string    `json:"instance_id"`
+	Type        string    `json:"type"`
+	Running     bool      `json:"running"`
+	Healthy     bool      `json:"healthy"`
+	Message     string    `json:"message"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	LastSuccess time.Time `json:"last_success"`
 }
 
 type runtimeEntry struct {
@@ -28,6 +29,7 @@ type runtimeEntry struct {
 	typeID      string
 	cancel      context.CancelFunc
 	done        chan struct{}
+	collector   Collector
 }
 
 type Manager struct {
@@ -115,7 +117,7 @@ func (manager *Manager) Apply(ctx context.Context, _ []persist.Integration, afte
 			continue
 		}
 		runtimeCtx, cancel := context.WithCancel(manager.ctx)
-		replacement := &runtimeEntry{fingerprint: fingerprint, typeID: instance.Type, cancel: cancel, done: make(chan struct{})}
+		replacement := &runtimeEntry{fingerprint: fingerprint, typeID: instance.Type, cancel: cancel, done: make(chan struct{}), collector: collector}
 		previous := manager.runtimes[instance.ID]
 		manager.runtimes[instance.ID] = replacement
 		manager.health[instance.ID] = RuntimeHealth{InstanceID: instance.ID, Type: instance.Type, Running: true, Healthy: true, Message: "运行中", UpdatedAt: time.Now()}
@@ -133,6 +135,13 @@ func (manager *Manager) Health() []RuntimeHealth {
 	defer manager.mu.Unlock()
 	result := make([]RuntimeHealth, 0, len(manager.health))
 	for _, value := range manager.health {
+		if entry := manager.runtimes[value.InstanceID]; value.Running && value.Healthy && entry != nil {
+			if reader, ok := entry.collector.(interface {
+				CollectionHealth() (bool, string, time.Time)
+			}); ok {
+				value.Healthy, value.Message, value.LastSuccess = reader.CollectionHealth()
+			}
+		}
 		result = append(result, value)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].InstanceID < result[j].InstanceID })

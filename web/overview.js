@@ -1,5 +1,13 @@
 import {createSettingsSection, setInlineStatus} from './manage-ui.js';
 
+const collectionNames = {truenas:'TrueNAS',plex:'Plex',jellyfin:'Jellyfin',qbittorrent:'qBittorrent',home_assistant:'Home Assistant',qweather:'和风天气',scrutiny:'Scrutiny',uptime_kuma:'Uptime Kuma'};
+export function collectionRows(collectors = []) {
+  return collectors.map((item) => {
+    const date = new Date(item.last_success ?? '');
+    return {name:collectionNames[item.type] || item.type, status:item.message || (item.healthy ? '采集正常' : '等待采集'), lastSuccess:date.getUTCFullYear() > 1970 ? date.toLocaleString('zh-CN', {timeZone:'Asia/Shanghai',hour12:false}) : '尚无成功采集'};
+  });
+}
+
 function formatDuration(totalSeconds) {
   const seconds = Math.max(0, Number(totalSeconds) || 0);
   const days = Math.floor(seconds / 86400);
@@ -43,7 +51,7 @@ export function overviewRows(data = {}) {
     {
       id: 'collectors', title: '采集器',
       value: `${healthy} 正常 · ${failed} 异常`, detail: firstFailure?.message || '',
-      tone: failed ? 'bad' : 'neutral',
+      tone: failed ? 'bad' : 'neutral', collections:collectionRows(collectors),
     },
     {
       id: 'desktop-client', title: '桌面客户端',
@@ -100,6 +108,12 @@ function statusBlock(documentRef, row) {
     detail.className = 'exception-message';
     detail.textContent = row.detail;
     block.append(detail);
+  }
+  if (row.collections?.length) {
+    const details = documentRef.createElement('details');
+    const summary = documentRef.createElement('summary'); summary.textContent = '查看采集状态与最后成功时间'; details.append(summary);
+    for (const item of row.collections) { const line = documentRef.createElement('p'); line.textContent = `${item.name} · ${item.status} · ${item.lastSuccess}`; details.append(line); }
+    block.append(details);
   }
   return block;
 }

@@ -12,6 +12,11 @@ export class ManageAPI {
   layout() { return this.request('/api/manage/layout'); }
   saveLayout(layout) { return this.request('/api/manage/layout', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(layout)}); }
   probe(candidate, signal) { return this.request('/api/manage/integrations/probe', {method: 'POST', signal, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(candidate)}); }
+  entities(candidate, instanceID, signal) { return this.request('/api/manage/integrations/entities', {method:'POST',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({...candidate,instance_id:instanceID ?? ''})}); }
+  restore(file, password, confirmation, token) {
+    const body = new FormData(); body.append('backup', file); body.append('password', password); body.append('confirmation', confirmation);
+    return this.request('/api/manage/restore', {method:'POST',headers:{'X-Reauth-Token':token},body});
+  }
   create(candidate) { return this.request('/api/manage/integrations', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(candidate)}); }
   update(id, candidate) { return this.request(`/api/manage/integrations/${encodeURIComponent(id)}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(candidate)}); }
   action(id, action) { return this.request(`/api/manage/integrations/${encodeURIComponent(id)}/${action}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}); }

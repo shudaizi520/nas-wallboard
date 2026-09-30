@@ -108,6 +108,29 @@ func (service *Service) Instances() []InstanceView {
 	return publicInstances(service.state.Snapshot().Integrations)
 }
 
+func (service *Service) ValidateRestored(store *persist.Store, secrets *persist.SecretStore) error {
+	validator := NewService(service.registry, store, secrets, ServiceOptions{})
+	ids, types := map[string]bool{}, map[string]bool{}
+	for _, item := range store.Snapshot().Integrations {
+		if item.ID == "" || ids[item.ID] || types[item.Type] {
+			return errors.New("duplicate restored integration")
+		}
+		ids[item.ID], types[item.Type] = true, true
+		supplied := Secrets{}
+		for key, ref := range item.SecretRefs {
+			value, err := secrets.Read(ref)
+			if err != nil {
+				return err
+			}
+			supplied[key] = value
+		}
+		if _, err := validator.validateCandidate(Candidate{Type: item.Type, Config: Config(item.Config), Secrets: supplied}, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (service *Service) TestCandidate(ctx context.Context, candidate Candidate) (ProbeResult, error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
