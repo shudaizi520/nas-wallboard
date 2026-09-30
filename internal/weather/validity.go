@@ -102,7 +102,7 @@ func rainSummaryAt(points []model.RainPoint, now time.Time) string {
 			return "局部可能有雨"
 		}
 	}
-	if points[len(points)-1].At.Add(5*time.Minute).Sub(now) < 115*time.Minute {
+	if points[len(points)-1].At.Add(5*time.Minute).Sub(now) < 120*time.Minute {
 		return "暂未见明显降雨"
 	}
 	return "未来2小时无明显降雨"

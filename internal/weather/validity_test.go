@@ -161,7 +161,7 @@ func TestRainProjectionRetainsNormalHintsAndDoesNotClaimMissingCoverage(t *testi
 	if got := rainSummaryAt(points, now); got != "未来2小时无明显降雨" {
 		t.Fatalf("full dry forecast = %q", got)
 	}
-	if got := rainSummaryAt(points, now.Add(6*time.Minute)); got != "暂未见明显降雨" {
+	if got := rainSummaryAt(points, now.Add(time.Minute)); got != "暂未见明显降雨" {
 		t.Fatalf("partial dry coverage overclaimed = %q", got)
 	}
 	for index := 18; index < 21; index++ {
@@ -181,6 +181,34 @@ func TestRainProjectionRetainsNormalHintsAndDoesNotClaimMissingCoverage(t *testi
 	}
 	if got := rainSummaryAt(points, now.Add(6*time.Minute)); got != "短时可能有雨" {
 		t.Fatalf("cached relative hint did not progress = %q", got)
+	}
+}
+
+func TestRefreshOutputCannotMutateRainCache(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	client := validityClient(t, &now, validRainPayload(now, "0.2", "0.2", "0.2"), validDailyPayload(now), nil)
+	first, err := client.Refresh(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.RainPoints[0].Amount = 0
+	now = now.Add(time.Minute)
+	second, err := client.Refresh(context.Background())
+	if err != nil || second.RainPoints[0].Amount != 0.2 || second.RainSummary != "当前可能有雨" {
+		t.Fatalf("returned sample mutated cache: %#v %v", second, err)
+	}
+}
+
+func TestLegacyCurrentCarriesSourceBoundedFreshness(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	issued := now.Add(-20 * time.Minute)
+	payload := strings.Replace(validRainPayload(now), `"updateTime":"`+now.Format(time.RFC3339)+`"`, `"updateTime":"`+issued.Format(time.RFC3339)+`"`, 1)
+	got, err := validityClient(t, &now, payload, validDailyPayload(now), nil).Current(context.Background())
+	if err != nil || got.Components == nil {
+		t.Fatalf("legacy source validity missing: components=%#v err=%v", got.Components, err)
+	}
+	if !got.Components.Rain.ExpiresAt.Equal(issued.Add(30*time.Minute)) || !got.Components.Rain.SourceUpdatedAt.Equal(issued) {
+		t.Fatalf("legacy rain age not bounded: %#v", got.Components.Rain)
 	}
 }
 

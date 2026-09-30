@@ -71,19 +71,28 @@ func (c *Client) Current(ctx context.Context) (model.WeatherStatus, error) {
 		return model.WeatherStatus{Enabled: false, Units: c.cfg.Units}, nil
 	}
 	result := c.emptyStatus()
-	if err := c.readCurrent(ctx, &result); err != nil {
-		return model.WeatherStatus{}, err
+	result.Components = &model.WeatherComponents{}
+	// Legacy callers still fetch all four sources per call. Keep their cadence
+	// and all-or-nothing error contract while supplying the same validity metadata.
+	for _, source := range []struct {
+		read     func(context.Context, *model.WeatherStatus) error
+		metadata *model.WeatherComponent
+		interval time.Duration
+		rain     bool
+	}{
+		{c.readCurrent, &result.Components.Current, currentRefreshInterval, false},
+		{c.readForecast, &result.Components.Forecast, forecastRefreshInterval, false},
+		{c.readRain, &result.Components.Rain, rainRefreshInterval, true},
+		{c.readAlerts, &result.Components.Alerts, alertRefreshInterval, false},
+	} {
+		if err := source.read(ctx, &result); err != nil {
+			return model.WeatherStatus{}, err
+		}
+		stamp := c.now()
+		source.metadata.AttemptedAt = stamp
+		markSuccessfulSource(source.metadata, result, stamp, source.interval, source.rain)
 	}
-	if err := c.readForecast(ctx, &result); err != nil {
-		return model.WeatherStatus{}, err
-	}
-	if err := c.readRain(ctx, &result); err != nil {
-		return model.WeatherStatus{}, err
-	}
-	if err := c.readAlerts(ctx, &result); err != nil {
-		return model.WeatherStatus{}, err
-	}
-	return result, nil
+	return ProjectAt(result, c.now()), nil
 }
 
 func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
@@ -149,15 +158,7 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 			failures = append(failures, outcome.err)
 		} else {
 			applyComponent(&next.status, outcome.value, outcome.index)
-			metadata.UpdatedAt = now
-			metadata.ExpiresAt = now.Add(3 * source.interval)
-			if outcome.index == 1 {
-				metadata.SourceUpdatedAt = outcome.value.RainUpdatedAt
-				metadata.ExpiresAt = earlier(metadata.ExpiresAt, outcome.value.RainUpdatedAt.Add(3*rainRefreshInterval))
-				points := outcome.value.RainPoints
-				metadata.ExpiresAt = earlier(metadata.ExpiresAt, points[len(points)-1].At.Add(5*time.Minute))
-			}
-			metadata.Error = ""
+			markSuccessfulSource(metadata, outcome.value, now, source.interval, outcome.index == 1)
 		}
 	}
 	for _, source := range sources {
@@ -167,9 +168,23 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 	c.cache = next
 	// A caller must not be able to mutate the cached component timestamps.
 	output := next.status
+	output.RainPoints = append([]model.RainPoint(nil), next.status.RainPoints...)
 	copy := components
 	output.Components = &copy
 	return ProjectAt(output, now), errors.Join(failures...)
+}
+
+func markSuccessfulSource(metadata *model.WeatherComponent, value model.WeatherStatus, now time.Time, interval time.Duration, rain bool) {
+	metadata.UpdatedAt = now
+	metadata.ExpiresAt = now.Add(3 * interval)
+	if rain {
+		metadata.SourceUpdatedAt = value.RainUpdatedAt
+		metadata.ExpiresAt = earlier(metadata.ExpiresAt, value.RainUpdatedAt.Add(3*rainRefreshInterval))
+		points := value.RainPoints
+		metadata.ExpiresAt = earlier(metadata.ExpiresAt, points[len(points)-1].At.Add(5*time.Minute))
+	}
+	metadata.Error = ""
+	metadata.Stale = false
 }
 
 func applyComponent(destination *model.WeatherStatus, value model.WeatherStatus, index int) {
