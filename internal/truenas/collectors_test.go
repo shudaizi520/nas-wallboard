@@ -335,7 +335,7 @@ func TestCollectMemoryReturnsOnlyReducedCapacityAndPressure(t *testing.T) {
 func TestCollectDiskHealthReducesActiveSMARTAlertsWithoutLeakingDetails(t *testing.T) {
 	caller := callerWith("alert.list", json.RawMessage(`[
       {"uuid":"one","klass":"SMART","formatted":"Device private-serial-a failed health checks"},
-      {"uuid":"two","klass":"SmartdAlert","formatted":"Device private-serial-b reports an error"},
+      {"uuid":"two","klass":"SmartdAlert","formatted":"Device private-serial-b reports an error","dismissed":true},
       {"uuid":"three","klass":"PoolStatus","formatted":"Pool is degraded"}
     ]`))
 	got, err := NewCollectors(caller, nil).CollectDiskHealth(context.Background())
