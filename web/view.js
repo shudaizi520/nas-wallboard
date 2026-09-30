@@ -198,6 +198,10 @@ export function renderDashboard(root, raw) {
       track?.style.setProperty('--progress', `${item.progress}%`);
     });
   });
+  if (panel) {
+    panel.dataset.ready = 'true';
+    panel.dispatchEvent(new Event('wallboard:rendered'));
+  }
 }
 
 export function renderFetchError(root) {

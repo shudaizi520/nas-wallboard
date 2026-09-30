@@ -11,6 +11,7 @@ function harness(search = '?desktop=1', withBridge = true) {
   let observerCallback = () => {};
   let disconnected = false;
   const panel = {
+    dataset: {},
     rect: {width: 300.4, height: 184.6},
     getBoundingClientRect() { return this.rect; },
     addEventListener(type, listener) { listeners.set(type, listener); },
@@ -56,15 +57,31 @@ test('desktop mode marks the page and reports rounded bounded panel size', () =>
   const fake = harness();
   const stop = startDesktopMode(fake);
   assert.equal(fake.classes.has('desktop-mode'), true);
-  assert.deepEqual(fake.messages, [{type: 'resize', width: 300, height: 185}]);
+  assert.deepEqual(fake.messages, [{type: 'resize', width: 300, height: 185, ready: false}]);
 
   fake.panel.rect = {width: 4000, height: -12};
   fake.resize();
-  assert.deepEqual(fake.messages.at(-1), {type: 'resize', width: 800, height: 80});
+  assert.deepEqual(fake.messages.at(-1), {type: 'resize', width: 800, height: 80, ready: false});
 
   stop();
   assert.equal(fake.disconnected(), true);
   assert.equal(fake.listeners.size, 0);
+});
+
+test('loading dimensions stay provisional until configured dashboard renders', () => {
+  const fake = harness();
+  fake.panel.rect = {width:560,height:80};
+  const stop=startDesktopMode(fake);
+  fake.resize();
+  assert.deepEqual(fake.messages.map((message)=>message.ready),[false,false]);
+  fake.panel.dataset.ready='true';
+  fake.panel.rect={width:360,height:340};
+  const rendered=fake.listeners.get('wallboard:rendered');
+  assert.equal(typeof rendered,'function');
+  rendered();
+  assert.deepEqual(fake.messages.at(-1),{type:'resize',width:360,height:340,ready:true});
+  stop();
+  assert.equal(fake.listeners.size,0);
 });
 
 test('desktop host can expose and clear movable mode', () => {

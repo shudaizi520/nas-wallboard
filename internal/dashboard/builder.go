@@ -560,6 +560,12 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 				}
 			}
 		}
+		if !weatherComponentAvailable(sources.Forecast) {
+			if componentNotice != "" {
+				componentNotice += " · "
+			}
+			componentNotice += "日预报暂不可用"
+		}
 	}
 	if currentUnavailable || invalidNumber(weather.Temperature) || strings.TrimSpace(weather.Condition) == "" {
 		missing := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用", Detail: "天气暂不可用"}

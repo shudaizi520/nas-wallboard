@@ -101,7 +101,7 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 	}
 	next.status.Components = &components
 	var failures []error
-	for _, source := range []struct {
+	sources := []struct {
 		metadata *model.WeatherComponent
 		interval time.Duration
 		read     func(context.Context, *model.WeatherStatus) error
@@ -110,22 +110,52 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 		{&components.Rain, rainRefreshInterval, c.readRain},
 		{&components.Alerts, alertRefreshInterval, c.readAlerts},
 		{&components.Forecast, forecastRefreshInterval, c.readForecast},
-	} {
+	}
+	type result struct {
+		index     int
+		value     model.WeatherStatus
+		err       error
+		attempted bool
+	}
+	completed := make(chan result, len(sources))
+	pending := 0
+	for index, source := range sources {
 		metadata := source.metadata
 		if refreshDue(now, metadata.AttemptedAt, source.interval) {
-			metadata.AttemptedAt = now
-			// Readers stage their output and only commit after a successful response.
-			if err := source.read(ctx, &next.status); err != nil {
-				metadata.Error = "unavailable"
-				failures = append(failures, err)
-			} else {
-				metadata.UpdatedAt = now
-				metadata.ExpiresAt = now.Add(3 * source.interval)
-				metadata.Error = ""
-			}
+			pending++
+			// Each due request starts within the same bounded round and stages its
+			// own result. A slow sibling cannot consume another source's budget.
+			go func(index int, read func(context.Context, *model.WeatherStatus) error, value model.WeatherStatus) {
+				if err := ctx.Err(); err != nil {
+					completed <- result{index: index, err: err}
+					return
+				}
+				err := read(ctx, &value)
+				completed <- result{index: index, value: value, err: err, attempted: true}
+			}(index, source.read, next.status)
 		} else if metadata.Error != "" {
 			failures = append(failures, errors.New("weather component unavailable"))
 		}
+	}
+	for range pending {
+		outcome := <-completed
+		source := sources[outcome.index]
+		metadata := source.metadata
+		if outcome.attempted {
+			metadata.AttemptedAt = now
+		}
+		if outcome.err != nil {
+			metadata.Error = "unavailable"
+			failures = append(failures, outcome.err)
+		} else {
+			applyComponent(&next.status, outcome.value, outcome.index)
+			metadata.UpdatedAt = now
+			metadata.ExpiresAt = now.Add(3 * source.interval)
+			metadata.Error = ""
+		}
+	}
+	for _, source := range sources {
+		metadata := source.metadata
 		metadata.Stale = metadata.UpdatedAt.IsZero() || now.After(metadata.ExpiresAt)
 	}
 	c.cache = next
@@ -134,6 +164,25 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 	copy := components
 	output.Components = &copy
 	return output, errors.Join(failures...)
+}
+
+func applyComponent(destination *model.WeatherStatus, value model.WeatherStatus, index int) {
+	switch index {
+	case 0:
+		destination.Temperature = value.Temperature
+		destination.FeelsLike = value.FeelsLike
+		destination.HumidityPercent = value.HumidityPercent
+		destination.WindScale = value.WindScale
+		destination.WindGustMetersPerSecond = value.WindGustMetersPerSecond
+		destination.UVIndex = value.UVIndex
+		destination.Condition, destination.ConditionCode = value.Condition, value.ConditionCode
+	case 1:
+		destination.RainSummary = value.RainSummary
+	case 2:
+		destination.Warnings = value.Warnings
+	case 3:
+		destination.Forecasts = value.Forecasts
+	}
 }
 
 // RefreshedAt is the last successful upstream component refresh, not the last

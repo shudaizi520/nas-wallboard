@@ -141,7 +141,7 @@ internal sealed class DesktopForm : Form
         switch (command)
         {
             case ResizeCommand resize:
-                ResizeAndClamp(resize.Width, resize.Height);
+                ResizeAndClamp(resize.Width, resize.Height, actualDashboardSize: resize.Ready && !showingFallback);
                 break;
         }
     }
@@ -336,6 +336,9 @@ internal sealed class DesktopForm : Form
 
     private void ResizeAndClamp(int width, int height, bool actualDashboardSize = true)
     {
+        // A refreshed page may report loading geometry; keep its previous actual
+        // bounds until configuration renders, never persist that temporary size.
+        if (!actualDashboardSize && initialPlacementComplete) return;
         if (actualDashboardSize) lastCssSize = new Size(width, height);
         var scale = DeviceDpi / 96d;
         var pixels = CssPixelSize.ToRawPixels(width, height, scale);

@@ -29,6 +29,19 @@ func TestExpiredWeatherRiskDoesNotSurviveSuccessfulSibling(t *testing.T) {
 	}
 }
 
+func TestForecastOnlyFailureIsVisibleWithoutHidingCurrent(t *testing.T) {
+	stamp := time.Now()
+	good := model.WeatherComponent{UpdatedAt: stamp}
+	module := model.Module[model.WeatherStatus]{Partial: true, Error: "unavailable", Data: model.WeatherStatus{
+		Enabled: true, Temperature: 29, Condition: "晴", RainSummary: "未来2小时无明显降雨",
+		Components: &model.WeatherComponents{Current: good, Rain: good, Alerts: good, Forecast: model.WeatherComponent{Error: "unavailable"}},
+	}}
+	got := weatherActivities(module)
+	if len(got) != 1 || !strings.Contains(got[0].Value, "29°") || !strings.Contains(got[0].Detail, "日预报暂不可用") {
+		t.Fatalf("silent forecast-only failure: %#v", got)
+	}
+}
+
 func TestTemporaryAlertFailureRetainsUnexpiredOfficialWarningAsLastKnown(t *testing.T) {
 	stamp := time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)
 	module := model.Module[model.WeatherStatus]{Error: "unavailable", Partial: true, Data: model.WeatherStatus{Enabled: true, Temperature: 29, Condition: "多云", RainSummary: "未来2小时无明显降雨", Warnings: []model.WeatherWarning{{Title: "暴雨橙色预警", Color: "orange"}}, Components: &model.WeatherComponents{Current: model.WeatherComponent{UpdatedAt: stamp}, Rain: model.WeatherComponent{UpdatedAt: stamp}, Alerts: model.WeatherComponent{UpdatedAt: stamp, Error: "unavailable"}}}}
