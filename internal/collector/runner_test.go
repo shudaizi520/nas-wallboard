@@ -34,7 +34,7 @@ func (c *fakeClock) NewTicker(duration time.Duration) Ticker {
 func TestRunnerClampsUnsafeIntervalsToJobMinimum(t *testing.T) {
 	clock := &fakeClock{}
 	runs := make(chan struct{}, 1)
-	_, _ = runTestRunner(t, clock, Job{Name: "safe", Every: time.Second, MinimumEvery: 15 * time.Second, Timeout: time.Second, Run: func(context.Context) error { runs <- struct{}{}; return nil }})
+	_, _, _ = runTestRunner(t, clock, Job{Name: "safe", Every: time.Second, MinimumEvery: 15 * time.Second, Timeout: time.Second, Run: func(context.Context) error { runs <- struct{}{}; return nil }})
 	waitSignal(t, runs, "job did not run")
 	clock.mu.Lock()
 	durations := append([]time.Duration(nil), clock.durations...)
@@ -62,7 +62,7 @@ func waitSignal(t *testing.T, ch <-chan struct{}, message string) {
 	}
 }
 
-func runTestRunner(t *testing.T, clock Clock, jobs ...Job) (context.CancelFunc, <-chan struct{}) {
+func runTestRunner(t *testing.T, clock Clock, jobs ...Job) (context.CancelFunc, <-chan struct{}, *Runner) {
 	t.Helper()
 	runner := NewRunner(jobs)
 	runner.clock = clock
@@ -76,7 +76,29 @@ func runTestRunner(t *testing.T, clock Clock, jobs ...Job) (context.CancelFunc, 
 		cancel()
 		waitSignal(t, done, "runner did not stop")
 	})
-	return cancel, done
+	return cancel, done, runner
+}
+
+// A job's own signal means it started, not that Runner has consumed its result.
+// Advance the fake clock only after completion when testing the next interval.
+func waitJobCompleted(t *testing.T, runner *Runner, name string) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		runner.mu.RLock()
+		completed := !runner.results[name].success.IsZero()
+		runner.mu.RUnlock()
+		if completed {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("job completion was not recorded")
+		case <-ticker.C:
+		}
+	}
 }
 
 func TestRunnerDoesNotOverlapSlowJob(t *testing.T) {
@@ -98,7 +120,7 @@ func TestRunnerDoesNotOverlapSlowJob(t *testing.T) {
 		active.Add(-1)
 		return nil
 	}}
-	_, _ = runTestRunner(t, clock, job)
+	_, _, _ = runTestRunner(t, clock, job)
 	waitSignal(t, started, "job did not run immediately")
 	clock.tickAll()
 	clock.tickAll()
@@ -124,9 +146,10 @@ func TestRunnerSlowJobDoesNotBlockOtherJobs(t *testing.T) {
 			return nil
 		}},
 	}
-	_, _ = runTestRunner(t, clock, jobs...)
+	_, _, runner := runTestRunner(t, clock, jobs...)
 	waitSignal(t, slowStarted, "slow job did not start")
 	waitSignal(t, fastStarted, "fast job was blocked")
+	waitJobCompleted(t, runner, "fast")
 	clock.tickAll()
 	waitSignal(t, fastStarted, "fast interval run was blocked")
 }
@@ -138,8 +161,9 @@ func TestRunnerRunsImmediatelyThenOnInterval(t *testing.T) {
 		runs <- struct{}{}
 		return nil
 	}}
-	_, _ = runTestRunner(t, clock, job)
+	_, _, runner := runTestRunner(t, clock, job)
 	waitSignal(t, runs, "job did not run immediately")
+	waitJobCompleted(t, runner, "job")
 	clock.tickAll()
 	waitSignal(t, runs, "job did not run on interval")
 }
@@ -152,7 +176,7 @@ func TestRunnerStopsOnContextCancel(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	}}
-	cancel, done := runTestRunner(t, clock, job)
+	cancel, done, _ := runTestRunner(t, clock, job)
 	waitSignal(t, started, "job did not start")
 	cancel()
 	waitSignal(t, done, "runner did not return after cancellation")
