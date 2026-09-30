@@ -104,3 +104,14 @@ Go httptest/Playwright tests need permission to bind temporary local ports. No t
 User instruction on 2026-09-30: “我看不懂，你直接实施，顺便看一下那个处理器使用率准不准”. This explicitly waives further document approval gates; implementation proceeds without additional design questions.
 Parallel-domain skill is used for Tasks 1–3 with disjoint ownership; coordinator executes Tasks 4–5 and integrates shared files. No task-specific reviewer loops; one fresh whole-branch review before release.
 Baseline: linked worktree verified on `fix/final-reliability`; initial source is v1.0.5 plus the design document. Record RED/GREEN evidence and completed commits below as work progresses.
+
+### Progress
+
+- Task 1: implemented in `1491b5a`, `9b7fa34`; failures reproduced before fixes. Focused Go suites/vet green, JavaScript 60/60, settings browser 5/5 (including 409 draft recovery and source deletion).
+- Task 2: implemented in `b247a87`; null/required metric, shared reads, failure cooldown and collector handover regressions observed RED→GREEN. Full Go suite green at that checkpoint; coordinator integrated source timestamp Store setters and runtime calls.
+- Task 3: implemented in `12ae6d6`; residue, archive limits, concurrent setup and shared credential budget RED→GREEN; scoped and full Go suites green.
+- Task 4: implemented in `b329d29`, `0ad48d5`; component failures, initial failure, partial publication, expiry, imperial display and preserved official-warning regressions RED→GREEN. Targeted weather/state/dashboard green.
+- Task 5: desktop and stale UI implementation in `b329d29`; .NET 36/36 green and Windows client builds with no warnings/errors. Browser 24/26 green locally: only 1080p/1440p height assertions fail with the local font bundle (370.14/372.38 versus 370), requiring canonical CI verification; assertions unchanged.
+- CPU evidence: installed TrueNAS25.10.7 reporting and realtime both read `truenas_cpu_usage.cpu`; middleware metrics utility reads `/proc/stat`, subtracts idle/iowait and sums all counters. Software33% matched its raw source sample. Same-window OS formula10.28% versus TrueNAS13.18%, with guest duplicate fraction3.34%.
+- Decision: preserve the TrueNAS total CPU source and document its guest-time accounting bias. The additional CPU request is an accuracy diagnosis, not authorization to alter NAS middleware; changing upstream or adding another collector would expand scope and query burden.
+- Final review, canonical CI, immutable release, backup/deployment and post-deployment checks remain pending.
