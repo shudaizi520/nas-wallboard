@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"example.com/nas-wallboard/internal/model"
+	"example.com/nas-wallboard/internal/weather"
 )
 
 type StaleAfter struct {
@@ -313,9 +314,11 @@ func (s *Store) Snapshot() model.Snapshot {
 	snapshot.Alerts.Stale = stale(now, snapshot.Alerts.UpdatedAt, intervals.Alerts)
 	snapshot.Weather.Stale = stale(now, snapshot.Weather.UpdatedAt, intervals.Weather)
 	if components := snapshot.Weather.Data.Components; components != nil {
+		snapshot.Weather.Data = weather.ProjectAt(snapshot.Weather.Data, now)
+		components = snapshot.Weather.Data.Components
 		unavailable := false
 		for _, source := range []*model.WeatherComponent{&components.Current, &components.Rain, &components.Alerts, &components.Forecast} {
-			source.Stale = source.UpdatedAt.IsZero() || now.After(source.ExpiresAt)
+			source.Stale = source.Stale || source.UpdatedAt.IsZero() || !now.Before(source.ExpiresAt)
 			unavailable = unavailable || source.Stale || source.Error != ""
 		}
 		snapshot.Weather.Partial = unavailable && !snapshot.Weather.UpdatedAt.IsZero()
@@ -389,6 +392,7 @@ func cloneWeatherStatus(value model.WeatherStatus) model.WeatherStatus {
 	}
 	value.Warnings = append([]model.WeatherWarning(nil), value.Warnings...)
 	value.Forecasts = append([]model.WeatherForecast(nil), value.Forecasts...)
+	value.RainPoints = append([]model.RainPoint(nil), value.RainPoints...)
 	return value
 }
 

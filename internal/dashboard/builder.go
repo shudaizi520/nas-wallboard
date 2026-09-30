@@ -585,7 +585,7 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	}
 	value := weatherTemperature(weather.Temperature, weather.Units) + " · " + strings.TrimSpace(weather.Condition)
 	detail := compactRainSummary(weather.RainSummary)
-	dry := detail == "未来2小时无明显降雨"
+	dry := detail == "未来2小时无明显降雨" || detail == "暂未见明显降雨"
 	tone := "active"
 	if dry && weather.FeelsLike != nil && weather.HumidityPercent != nil {
 		detail = "体感" + weatherTemperature(*weather.FeelsLike, weather.Units) + " · 湿度" + compactNumber(math.Round(*weather.HumidityPercent)) + "%"
