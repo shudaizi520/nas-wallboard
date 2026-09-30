@@ -498,6 +498,7 @@ type alertWire struct {
 	Class     string          `json:"klass"`
 	Formatted string          `json:"formatted"`
 	Datetime  json.RawMessage `json:"datetime"`
+	Dismissed bool            `json:"dismissed"`
 }
 
 func (c *Collectors) CollectAlerts(ctx context.Context) ([]model.AlertStatus, error) {
@@ -507,6 +508,9 @@ func (c *Collectors) CollectAlerts(ctx context.Context) ([]model.AlertStatus, er
 	}
 	alerts := make([]model.AlertStatus, 0, len(raw))
 	for _, item := range raw {
+		if item.Dismissed {
+			continue
+		}
 		alerts = append(alerts, model.AlertStatus{
 			ID:         item.UUID,
 			Level:      normalizeAlertLevel(item.Level),

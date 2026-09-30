@@ -231,6 +231,44 @@ func TestCollectAlertsMapsSeverityAndTimestamps(t *testing.T) {
 	}
 }
 
+func TestCollectAlertsHonorsDismissalOnEachExistingPoll(t *testing.T) {
+	caller := callerWith("alert.list",
+		json.RawMessage(`[
+          {"uuid":"ssh","klass":"SSHLoginFailures","level":"WARNING","formatted":"3 SSH login failures in the last 24 hours","dismissed":false},
+          {"uuid":"legacy","klass":"PoolStatus","level":"CRITICAL","formatted":"Pool is degraded"},
+          {"uuid":"dismissed-smart","klass":"SMART","level":"CRITICAL","dismissed":true}
+        ]`),
+		json.RawMessage(`[
+          {"uuid":"ssh","klass":"SSHLoginFailures","level":"WARNING","dismissed":true},
+          {"uuid":"legacy","klass":"PoolStatus","level":"CRITICAL"},
+          {"uuid":"dismissed-smart","klass":"SMART","level":"CRITICAL","dismissed":true}
+        ]`),
+		json.RawMessage(`[
+          {"uuid":"ssh","klass":"SSHLoginFailures","level":"WARNING","dismissed":false},
+          {"uuid":"legacy","klass":"PoolStatus","level":"CRITICAL"},
+          {"uuid":"dismissed-smart","klass":"SMART","level":"CRITICAL","dismissed":true}
+        ]`),
+		json.RawMessage(`[{"uuid":"ssh","klass":"SSHLoginFailures","dismissed":true}]`),
+	)
+	collectors := NewCollectors(caller, nil)
+	for poll, want := range [][]string{{"ssh", "legacy"}, {"legacy"}, {"ssh", "legacy"}, {}} {
+		got, err := collectors.CollectAlerts(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := make([]string, 0, len(got))
+		for _, alert := range got {
+			ids = append(ids, alert.ID)
+		}
+		if !reflect.DeepEqual(ids, want) {
+			t.Fatalf("poll %d: visible alerts = %v, want %v", poll, ids, want)
+		}
+	}
+	if !reflect.DeepEqual(caller.calls, []string{"alert.list", "alert.list", "alert.list", "alert.list"}) {
+		t.Fatalf("dismissal filtering added NAS queries: %v", caller.calls)
+	}
+}
+
 func TestRealtimeCachesGraphMetadataAndMemoryTotal(t *testing.T) {
 	caller := &fixtureCaller{responses: map[string][]json.RawMessage{
 		"reporting.netdata_graphs":   {fixture(t, "reporting_graphs")},
