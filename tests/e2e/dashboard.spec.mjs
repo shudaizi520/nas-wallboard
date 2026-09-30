@@ -540,7 +540,7 @@ test('management page adds, keyboard reorders, configures, previews, and saves s
   expect(managedLayout.widgets.find((item) => item.id === 'uptime_kuma-1').enabled).toBe(true);
   await expect(page.locator('#layout-preview')).toHaveAttribute('src', /desktop=1&preview=/);
   await expect(page.frameLocator('#layout-preview').locator('.glass-panel')).toBeVisible();
-  const previewFit = await page.locator('.preview-stage').evaluate((stage) => {
+  const measurePreviewFit = () => page.locator('.preview-stage').evaluate((stage) => {
     const iframe = stage.querySelector('iframe');
     const panel = iframe.contentDocument.querySelector('.glass-panel');
     const matrix = new DOMMatrixReadOnly(getComputedStyle(iframe).transform);
@@ -550,8 +550,12 @@ test('management page adds, keyboard reorders, configures, previews, and saves s
       sharedPanels: iframe.contentDocument.querySelectorAll('.glass-panel').length,
     };
   });
-  expect(previewFit.sharedPanels).toBe(1);
-  expect(Math.abs(previewFit.stageHeight - previewFit.expectedHeight)).toBeLessThanOrEqual(32);
+  expect((await measurePreviewFit()).sharedPanels).toBe(1);
+  // ResizeObserver and the stage's height transition settle asynchronously.
+  await expect.poll(async () => {
+    const fit = await measurePreviewFit();
+    return Math.abs(fit.stageHeight - fit.expectedHeight);
+  }).toBeLessThanOrEqual(32);
   await page.screenshot({path: testInfo.outputPath('layout-editor.jpg'), type: 'jpeg', quality: 88, fullPage: true});
 });
 
