@@ -161,16 +161,14 @@ func (s *Service) Layout() Layout {
 var ErrLayoutConflict = errors.New("layout changed; synchronize before saving")
 
 func layoutRevision(state persist.State) string {
-	// Include source identity and availability without hashing or exposing credentials.
-	sources := make([]string, 0, len(state.Integrations))
-	for _, item := range state.Integrations {
-		sources = append(sources, fmt.Sprintf("%s:%s:%t", item.ID, item.Type, item.Enabled))
-	}
-	sort.Strings(sources)
+	// Source settings and opaque credential references invalidate stale editors;
+	// plaintext credentials are never loaded or returned to the client.
+	sources := append([]persist.Integration(nil), state.Integrations...)
+	sort.Slice(sources, func(i, j int) bool { return sources[i].ID < sources[j].ID })
 	data, _ := json.Marshal(struct {
 		Width   int
 		Widgets []persist.Widget
-		Sources []string
+		Sources []persist.Integration
 	}{state.Server.Width, state.Widgets, sources})
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
@@ -180,7 +178,7 @@ func (s *Service) layout(state persist.State) Layout {
 	if width < 300 || width > 720 {
 		width = 360
 	}
-	widgets := append([]persist.Widget(nil), state.Widgets...)
+	widgets := append([]persist.Widget{}, state.Widgets...)
 	sources := map[string]string{}
 	for _, source := range state.Integrations {
 		sources[source.ID] = source.Type

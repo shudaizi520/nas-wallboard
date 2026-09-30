@@ -81,6 +81,38 @@ func TestLayoutRevisionCheckAndWriteAreAtomic(t *testing.T) {
 	}
 }
 
+func TestIntegrationConfigurationChangeInvalidatesLayoutRevision(t *testing.T) {
+	store, err := persist.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(func(s *persist.State) error {
+		s.Integrations = []persist.Integration{{ID: "plex-main", Type: "plex", Enabled: true, Config: map[string]any{"url": "http://old.local"}}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(testRegistry(t), store)
+	stale := service.Layout()
+	if err := store.Update(func(s *persist.State) error { s.Integrations[0].Config["url"] = "http://new.local"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Update(stale); err != ErrLayoutConflict {
+		t.Fatalf("configuration change accepted stale layout: %v", err)
+	}
+}
+
+func TestEmptyManagementLayoutReturnsAnEditableWidgetList(t *testing.T) {
+	store, err := persist.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(testRegistry(t), store)
+	if service.Layout().Widgets == nil {
+		t.Fatal("empty widget list becomes JSON null and breaks editor initialization")
+	}
+}
+
 func TestLayoutRevisionRejectsConcurrentAndSourceChanges(t *testing.T) {
 	store, err := persist.Open(t.TempDir())
 	if err != nil {

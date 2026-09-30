@@ -98,7 +98,15 @@ export function mergeLayoutDraft(saved, draft, incoming, sources) {
   for (const item of next.widgets) {
     const before = originals.get(item.id);
     const edit = edits.get(item.id);
-    if (!before || !edit) continue;
+    if (!edit) continue;
+    if (!before) {
+      if (edit.definition_id === item.definition_id) {
+        item.enabled = edit.enabled;
+        if (!edit.integration_id || sourceIDs.has(edit.integration_id)) item.integration_id = edit.integration_id;
+        item.config = {...item.config, ...copy(edit.config ?? {})};
+      }
+      continue;
+    }
     for (const key of ['enabled', 'integration_id']) {
       if (edit[key] !== before[key]) item[key] = edit[key];
     }

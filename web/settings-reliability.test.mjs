@@ -29,3 +29,11 @@ test('saved integration candidate carries identity for masked credential testing
  const form={elements:{namedItem:()=>({value:'********'})}};
  assert.equal(candidateFromForm(definition,form,{id:'plex-main',secrets:{token:true}}).candidate.instance_id,'plex-main');
 });
+test('new server default with the same stable ID preserves a locally added widget draft', () => {
+ const saved={revision:'one',width:360,widgets:[]};
+ const draft={...structuredClone(saved),widgets:[{...widget('a'),config:{limit:6}}]};
+ const incoming={revision:'two',width:360,widgets:[widget('a')]};
+ const merged=layout.mergeLayoutDraft(saved,draft,incoming,[{id:'a-source'}]);
+ assert.equal(merged.widgets.length,1);
+ assert.equal(merged.widgets[0].config.limit,6);
+});
