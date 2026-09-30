@@ -171,6 +171,16 @@ func TestPublicReleasePathsContainNoOwnerSpecificAddressOrPlaceholder(t *testing
 	}
 }
 
+func TestReleaseSmokeCheckUsesSetupStatusResponseField(t *testing.T) {
+	workflow := string(projectFile(t, ".github/workflows/release.yml"))
+	if !strings.Contains(workflow, `grep '"setup_required":true'`) {
+		t.Fatal("release smoke check does not assert the setup_required response field")
+	}
+	if strings.Contains(workflow, `grep '"required":true'`) {
+		t.Fatal("release smoke check still asserts the nonexistent required response field")
+	}
+}
+
 func contains(values []string, wanted string) bool {
 	for _, value := range values {
 		if value == wanted {

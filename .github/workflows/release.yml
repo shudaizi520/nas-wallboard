@@ -105,7 +105,7 @@ jobs:
           docker run --rm --user 0:0 -v "$volume:/data" "$image" init-data --path /data --uid 65532 --gid 65532
           docker run -d --name "$container" --user 65532:65532 --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m -v "$volume:/data" -p 127.0.0.1:18082:8080 "$image" serve
           for attempt in {1..30}; do curl --fail --silent http://127.0.0.1:18082/healthz && break; sleep 1; done
-          curl --fail --silent http://127.0.0.1:18082/api/setup/status | grep '"required":true'
+          curl --fail --silent http://127.0.0.1:18082/api/setup/status | grep '"setup_required":true'
       - name: Checksums
         run: (cd dist && sha256sum nas-wallboard-truenas.yaml nas-wallboard-desktop.zip nas-wallboard.spdx.json > SHA256SUMS)
       - name: Attest release files
