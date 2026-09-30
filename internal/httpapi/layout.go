@@ -43,7 +43,15 @@ func (s *server) manageLayout(w http.ResponseWriter, request *http.Request) {
 			writeAPIError(w, http.StatusBadRequest, "invalid_layout")
 			return
 		}
+		if next.Revision == "" {
+			writeAPIError(w, http.StatusConflict, "layout_conflict")
+			return
+		}
 		if err := s.widgets.Update(next); err != nil {
+			if errors.Is(err, widget.ErrLayoutConflict) {
+				writeAPIError(w, http.StatusConflict, "layout_conflict")
+				return
+			}
 			writeAPIError(w, http.StatusBadRequest, "invalid_layout")
 			return
 		}
@@ -63,11 +71,8 @@ func (s *server) writeLayout(w http.ResponseWriter) {
 	sources := []map[string]any{}
 	if s.configState != nil {
 		for _, source := range s.configState.Snapshot().Integrations {
-			if !source.Enabled {
-				continue
-			}
-			capabilities[source.Type] = true
-			sources = append(sources, map[string]any{"id": source.ID, "type": source.Type, "enabled": true})
+			capabilities[source.Type] = source.Enabled
+			sources = append(sources, map[string]any{"id": source.ID, "type": source.Type, "enabled": source.Enabled})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

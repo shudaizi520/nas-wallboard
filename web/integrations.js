@@ -76,7 +76,7 @@ export function candidateFromForm(definition, form, instance) {
     if (field.kind === 'secret') secrets[field.key] = value || (instance?.secrets?.[field.key] ? MASKED_SECRET : '');
     else if (value !== '') config[field.key] = value;
   }
-  return {candidate: {type: definition.id, config, secrets}, errors};
+  return {candidate: {type: definition.id, config, secrets, ...(instance?.id ? {instance_id: instance.id} : {})}, errors};
 }
 
 const pendingRows = new WeakSet();
@@ -127,7 +127,7 @@ function controlFor(field, instance) {
   return wrapper;
 }
 
-export function createIntegrationCenter(root, api) {
+export function createIntegrationCenter(root, api, options = {}) {
   let state = {catalog: [], instances: [], health: []};
   let controller = null;
   const dialog = document.querySelector('#integration-dialog');
@@ -157,11 +157,11 @@ export function createIntegrationCenter(root, api) {
         button.textContent = action === 'configure' ? (instance ? '设置' : '添加') : action === 'disable' ? '停用' : action === 'enable' ? '启用' : '删除';
         if (action === 'configure') button.addEventListener('click', () => open(definition, instance));
         if (action === 'disable' || action === 'enable') button.addEventListener('click', () => {
-          void runIntegrationRowAction({buttons: [...actions.querySelectorAll('button')], status: actionStatus, task: () => api.action(instance.id, action), reload: load});
+          void runIntegrationRowAction({buttons: [...actions.querySelectorAll('button')], status: actionStatus, task: async () => { await api.action(instance.id, action); await options.onChange?.(); }, reload: load});
         });
         if (action === 'remove') button.addEventListener('click', () => {
           if (!window.confirm(`确定删除“${definition.metadata.name}”吗？`)) return;
-          void runIntegrationRowAction({buttons: [...actions.querySelectorAll('button')], status: actionStatus, task: () => api.remove(instance.id), reload: load});
+          void runIntegrationRowAction({buttons: [...actions.querySelectorAll('button')], status: actionStatus, task: async () => { await api.remove(instance.id); await options.onChange?.(); }, reload: load});
         });
         actions.append(button);
       }
@@ -221,7 +221,7 @@ export function createIntegrationCenter(root, api) {
     }
     const read = () => { const value = candidateFromForm(definition, form, instance); form.querySelectorAll('[data-error]').forEach((node) => { node.textContent = value.errors[node.dataset.error] ?? ''; }); return value; };
     probe.addEventListener('click', async () => { const {candidate, errors} = read(); if (Object.keys(errors).length) return; probe.disabled = true; result.textContent = '正在测试连接…'; try { const response = await api.probe(candidate, controller.signal); result.textContent = response.message || '连接成功'; } catch (error) { if (error.name !== 'AbortError') result.textContent = error.data?.probe?.message || (error.code === 'probe_failed' ? '连接测试失败' : '无法完成测试'); } finally { probe.disabled = false; } });
-    form.onsubmit = async (event) => { event.preventDefault(); const {candidate, errors} = read(); if (Object.keys(errors).length) return; save.disabled = true; try { if (instance) await api.update(instance.id, candidate); else await api.create(candidate); close(); await load(); } catch (error) { result.textContent = error.data?.probe?.message || (error.code === 'probe_failed' ? '连接测试失败，未保存' : '保存失败，请检查字段'); save.disabled = false; } };
+    form.onsubmit = async (event) => { event.preventDefault(); const {candidate, errors} = read(); if (Object.keys(errors).length) return; save.disabled = true; try { if (instance) await api.update(instance.id, candidate); else await api.create(candidate); close(); await options.onChange?.(); await load(); } catch (error) { result.textContent = error.data?.probe?.message || (error.code === 'probe_failed' ? '连接测试失败，未保存' : '保存失败，请检查字段'); save.disabled = false; } };
     dialog.showModal();
   };
   dialog.addEventListener('cancel', (event) => { event.preventDefault(); close(); });

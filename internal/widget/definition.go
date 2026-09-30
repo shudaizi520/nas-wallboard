@@ -84,8 +84,9 @@ type LegacyItem struct {
 }
 
 type Layout struct {
-	Width   int              `json:"width"`
-	Widgets []persist.Widget `json:"widgets"`
+	Revision string           `json:"revision,omitempty"`
+	Width    int              `json:"width"`
+	Widgets  []persist.Widget `json:"widgets"`
 }
 
 func DefaultTrueNASWidgets(sourceID string) []persist.Widget {

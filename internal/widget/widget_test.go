@@ -214,8 +214,8 @@ func TestServiceValidatesWidthDuplicatesSourcesVisibilityAndRemoval(t *testing.T
 		t.Fatal(err)
 	}
 	clean := service.Layout()
-	if clean.Widgets[1].Enabled {
-		t.Fatal("widget with removed source remained enabled")
+	if len(clean.Widgets) != 1 || clean.Widgets[0].ID != "cpu-1" {
+		t.Fatal("widget with removed source remained in management layout")
 	}
 	if err := service.Update(clean); err != nil {
 		t.Fatalf("disabled widget with removed source should remain editable: %v", err)

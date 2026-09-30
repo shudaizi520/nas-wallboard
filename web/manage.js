@@ -32,8 +32,8 @@ async function load() {
     document.querySelector('#overview-sections').replaceChildren(error);
   });
   editor = createLayoutEditor(document.querySelector('#desktop-page'), api);
-  await editor.load();
-  const center = createIntegrationCenter(document.querySelector('#integration-cards'), api);
+  editor.load().catch(() => {});
+  const center = createIntegrationCenter(document.querySelector('#integration-cards'), api, {onChange: () => editor.synchronize().catch(() => {})});
   center.load().catch(() => { document.querySelector('#integration-cards').textContent = '集成加载失败'; });
   createSettingsPage(document.querySelector('#settings-page'), api);
 }

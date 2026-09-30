@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -131,14 +132,25 @@ func (service *Service) ValidateRestored(store *persist.Store, secrets *persist.
 	return nil
 }
 
-func (service *Service) TestCandidate(ctx context.Context, candidate Candidate) (ProbeResult, error) {
+func (service *Service) TestCandidate(ctx context.Context, candidate Candidate, instanceIDs ...string) (ProbeResult, error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	definition, err := service.validateCandidate(candidate, nil)
+	var current *persist.Integration
+	if len(instanceIDs) > 1 {
+		return ProbeResult{}, ErrInstanceNotFound
+	}
+	if len(instanceIDs) == 1 && instanceIDs[0] != "" {
+		item, ok := findIntegration(service.state.Snapshot().Integrations, instanceIDs[0])
+		if !ok || item.Type != candidate.Type {
+			return ProbeResult{}, ErrInstanceNotFound
+		}
+		current = &item
+	}
+	definition, err := service.validateCandidate(candidate, current)
 	if err != nil {
 		return ProbeResult{}, err
 	}
-	effective, err := service.effectiveSecrets(definition, candidate.Secrets, nil)
+	effective, err := service.effectiveSecrets(definition, candidate.Secrets, current)
 	if err != nil {
 		return ProbeResult{}, err
 	}
@@ -237,6 +249,11 @@ func (service *Service) Remove(ctx context.Context, instanceID string) error {
 	}
 	if err := service.state.Update(func(state *persist.State) error {
 		state.Integrations = slices.DeleteFunc(state.Integrations, func(item persist.Integration) bool { return item.ID == instanceID })
+		state.Widgets = slices.DeleteFunc(state.Widgets, func(item persist.Widget) bool { return item.IntegrationID == instanceID })
+		sort.SliceStable(state.Widgets, func(i, j int) bool { return state.Widgets[i].Order < state.Widgets[j].Order })
+		for index := range state.Widgets {
+			state.Widgets[index].Order = index
+		}
 		return nil
 	}); err != nil {
 		return err

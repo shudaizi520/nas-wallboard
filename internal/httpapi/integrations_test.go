@@ -56,6 +56,20 @@ func TestIntegrationAPIProbeCRUDRedactionAndAuthentication(t *testing.T) {
 		t.Fatalf("create = %d %q", create.Code, create.Body.String())
 	}
 	instance := fixture.state.Snapshot().Integrations[0]
+	maskedPayload := fmt.Sprintf(`{"type":"plex","instance_id":%q,"config":{"url":%q},"secrets":{"token":"********"}}`, instance.ID, plex.URL)
+	maskedProbe := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/manage/integrations/probe", bytes.NewBufferString(maskedPayload), headers, cookie)
+	if maskedProbe.Code != http.StatusOK || strings.Contains(maskedProbe.Body.String(), "plex-secret") {
+		t.Fatalf("saved credential probe = %d %q", maskedProbe.Code, maskedProbe.Body.String())
+	}
+	for _, input := range []string{
+		fmt.Sprintf(`{"type":"plex","instance_id":"unknown","config":{"url":%q},"secrets":{"token":"********"}}`, plex.URL),
+		fmt.Sprintf(`{"type":"jellyfin","instance_id":%q,"config":{"url":%q},"secrets":{"token":"********"}}`, instance.ID, plex.URL),
+	} {
+		response := protectedRequest(t, fixture.handler, http.MethodPost, "http://nas.local/api/manage/integrations/probe", bytes.NewBufferString(input), headers, cookie)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("invalid identity probe = %d %q", response.Code, response.Body.String())
+		}
+	}
 	updatePayload := fmt.Sprintf(`{"type":"plex","config":{"url":%q},"secrets":{"token":"%s"}}`, plex.URL, integration.MaskedSecret)
 	update := protectedRequest(t, fixture.handler, http.MethodPut, "http://nas.local/api/manage/integrations/"+instance.ID, bytes.NewBufferString(updatePayload), headers, cookie)
 	if update.Code != http.StatusOK || strings.Contains(update.Body.String(), "plex-secret") {

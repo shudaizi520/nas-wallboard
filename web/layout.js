@@ -89,6 +89,39 @@ export function isLayoutDirty(saved, current) {
   return JSON.stringify(saved) !== JSON.stringify(current);
 }
 
+export function mergeLayoutDraft(saved, draft, incoming, sources) {
+  const next = copy(incoming);
+  if (saved.width !== draft.width) next.width = draft.width;
+  const originals = new Map(saved.widgets.map(item => [item.id, item]));
+  const edits = new Map(draft.widgets.map(item => [item.id, item]));
+  const sourceIDs = new Set(sources.map(item => item.id));
+  for (const item of next.widgets) {
+    const before = originals.get(item.id);
+    const edit = edits.get(item.id);
+    if (!before || !edit) continue;
+    for (const key of ['enabled', 'integration_id']) {
+      if (edit[key] !== before[key]) item[key] = edit[key];
+    }
+    for (const key of new Set([...Object.keys(before.config ?? {}), ...Object.keys(edit.config ?? {})])) {
+      if (JSON.stringify(edit.config?.[key]) !== JSON.stringify(before.config?.[key])) {
+        item.config ??= {};
+        if (Object.hasOwn(edit.config ?? {}, key)) item.config[key] = copy(edit.config[key]);
+        else delete item.config[key];
+      }
+    }
+  }
+  for (const item of draft.widgets) {
+    if (!originals.has(item.id) && !next.widgets.some(candidate => candidate.id === item.id)
+        && (!item.integration_id || sourceIDs.has(item.integration_id))) next.widgets.push(copy(item));
+  }
+  const moved = JSON.stringify(saved.widgets.map(item => item.id)) !== JSON.stringify(draft.widgets.filter(item => originals.has(item.id)).map(item => item.id));
+  if (moved) {
+    const positions = new Map(draft.widgets.map((item,index) => [item.id,index]));
+    next.widgets.sort((a,b) => (positions.get(a.id) ?? Infinity) - (positions.get(b.id) ?? Infinity));
+  }
+  return normalizeOrders(next);
+}
+
 export function layoutPresentation(saved, current, catalog, sources) {
   const definitions = new Map(catalog.map((item) => [item.id, item]));
   const instances = new Map(current.widgets.map((item) => [item.definition_id, item]));
@@ -223,6 +256,15 @@ export function createLayoutEditor(root, api, options = {}) {
   let saved = {width: 360, widgets: []};
   let current = copy(saved);
   let dragged = '';
+  let pending = false;
+  let initialized = false;
+  let syncSequence = 0;
+  let syncAfterSave = false;
+
+  const lockControls = () => {
+    for (const node of root.querySelectorAll('input, select, button')) node.disabled = pending || !initialized;
+    for (const row of list.querySelectorAll('.layout-item')) { row.draggable = !pending; row.tabIndex = pending ? -1 : 0; }
+  };
 
   const setStatus = (message, tone = '') => { status.textContent = message; status.dataset.tone = tone; };
   const changed = () => {
@@ -270,12 +312,12 @@ export function createLayoutEditor(root, api, options = {}) {
         controls.append(fieldInput(documentRef, field, item.config?.[field.key], (value) => { current = updateWidget(current, item.id, {config: {[field.key]: value}}); changed(); }));
       }
       if (controls.childElementCount) row.append(controls);
-      row.addEventListener('dragstart', () => { dragged = item.id; row.classList.add('dragging'); });
+      row.addEventListener('dragstart', (event) => { if(pending) {event.preventDefault();return;} dragged = item.id; row.classList.add('dragging'); });
       row.addEventListener('dragend', () => { dragged = ''; row.classList.remove('dragging'); });
       row.addEventListener('dragover', (event) => event.preventDefault());
-      row.addEventListener('drop', (event) => { event.preventDefault(); if (dragged) { current = reorderWidgets(current, dragged, item.order); changed(); render(); } });
+      row.addEventListener('drop', (event) => { event.preventDefault(); if (!pending && dragged) { current = reorderWidgets(current, dragged, item.order); changed(); render(); } });
       row.addEventListener('keydown', (event) => {
-        if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+        if (pending || !event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
         event.preventDefault(); current = reorderWidgets(current, item.id, item.order + (event.key === 'ArrowUp' ? -1 : 1)); changed(); render();
         list.querySelector(`[data-id="${item.id}"]`)?.focus();
       });
@@ -295,30 +337,50 @@ export function createLayoutEditor(root, api, options = {}) {
       section.append(heading, items); library.append(section);
     }
     librarySection.hidden = !library.childElementCount;
+    lockControls();
+  };
+
+  const synchronize = async () => {
+    if (pending) { syncAfterSave = true; return; }
+    const sequence = ++syncSequence;
+    try {
+      const data = await api.layout();
+      if (sequence !== syncSequence) return;
+      if (pending) { syncAfterSave = true; return; }
+      current = initialized ? mergeLayoutDraft(saved,current,data.layout,data.sources) : copy(data.layout);
+      catalog=data.catalog; sources=data.sources; saved=copy(data.layout); initialized=true;
+      render(); changed();
+      if (!root.hidden) preview.start();
+    } catch (error) {
+      if (sequence === syncSequence) setStatus('桌面布局加载失败，请重新打开桌面内容重试', 'error');
+      throw error;
+    }
   };
 
   width.addEventListener('input', () => { current.width = Number(width.value); widthValue.value = `${current.width}px`; preview.setViewportWidth(current.width); changed(); });
   reset.addEventListener('click', () => { current.widgets.forEach((item) => { current = resetWidget(current, item.id, catalog); }); changed(); render(); });
   save.addEventListener('click', async () => {
+    if (pending || !initialized) return;
     const errors = validateLayout(current, catalog, sources);
     if (errors.length) { setStatus(errors[0], 'error'); return; }
-    save.disabled = true; setStatus('正在保存…');
+    pending = true; dragged = ''; lockControls(); setStatus('正在保存…');
     try {
-      const data = await api.saveLayout(current);
+      const data = await api.saveLayout(copy(current));
       catalog = data.catalog; sources = data.sources; saved = copy(data.layout); current = copy(saved);
       setStatus('已保存', 'success'); render(); preview.refresh();
-    } catch (error) { setStatus(error.message === 'invalid_layout' ? '布局设置无效，请检查数据来源' : '保存失败，请稍后重试', 'error'); }
-    finally { save.disabled = false; }
+    } catch (error) { setStatus(error.code === 'layout_conflict' ? '布局已在其他页面更新，草稿已保留；请重新打开桌面内容同步后保存' : error.message === 'invalid_layout' ? '布局设置无效，请检查数据来源' : '保存失败，草稿已保留，请稍后重试', 'error'); }
+    finally {
+      pending = false; lockControls();
+      if (syncAfterSave) { syncAfterSave = false; await synchronize().catch(() => {}); }
+    }
   });
 
+  lockControls();
+
   return {
-    async load() {
-      const data = await api.layout();
-      catalog = data.catalog; sources = data.sources; saved = copy(data.layout); current = copy(saved);
-      render();
-      if (!root.hidden) preview.start();
-    },
-    setActive(active) { if (active) preview.start(); else preview.stop(); },
+    load: synchronize,
+    synchronize,
+    setActive(active) { if (active) { preview.start(); void synchronize().catch(() => {}); } else preview.stop(); },
     stop() { preview.stop(); },
     value() { return copy(current); },
   };
