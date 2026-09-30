@@ -6,6 +6,25 @@ namespace NASWallboard.Desktop.Core.Tests;
 public sealed class WindowPlacementTests
 {
     [TestMethod]
+    public void InitialActualSizeRestoresSavedPositionWithoutBootstrapClamping()
+    {
+        var areas = new[] { new ScreenRect(0, 0, 1920, 1040) };
+        Assert.AreEqual(new ScreenRect(1536, 24, 360, 340),
+            WindowPlacement.Initial(new PixelPoint(1536, 24), 360, 340, areas));
+    }
+
+    [TestMethod]
+    public void InitialPlacementUsesDefaultInsetAndHandlesRemovedMonitor()
+    {
+        var areas = new[] { new ScreenRect(0, 0, 1920, 1040) };
+        Assert.AreEqual(new ScreenRect(1536, 24, 360, 340),
+            WindowPlacement.Initial(new PixelPoint(-1, -1), 360, 340, areas));
+        Assert.AreEqual(new ScreenRect(1560, 24, 360, 340),
+            WindowPlacement.Initial(new PixelPoint(3000, 24), 360, 340, areas));
+        Assert.IsFalse(WindowPlacement.ShouldPersist(false, new PixelPoint(1500, 24), new PixelPoint(1536, 24)));
+    }
+
+    [TestMethod]
     public void DefaultPlacementUsesTheTopRightCornerWithACompactInset()
     {
         var area = new ScreenRect(0, 0, 1920, 1040);

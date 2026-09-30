@@ -106,6 +106,10 @@ func (b *Builder) Build(snapshot model.Snapshot, now time.Time) View {
 	if snapshot.Connected {
 		view.ConnectionTone = "good"
 	}
+	if !snapshot.Connected || snapshot.Realtime.Stale || snapshot.Realtime.Error != "" {
+		view.DataStatus = "数据过期"
+		view.ConnectionTone = "bad"
+	}
 	for _, configured := range metrics {
 		switch configured.Type {
 		case config.MetricTypeCPU:
@@ -531,15 +535,41 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	if !weather.Enabled {
 		return Activity{}, false
 	}
-	if module.Stale || module.Error != "" || invalidNumber(weather.Temperature) || strings.TrimSpace(weather.Condition) == "" {
-		return Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用"}, true
+	currentUnavailable := module.Stale || module.Error != ""
+	componentNotice := ""
+	lastKnownWarning := false
+	if sources := weather.Components; sources != nil {
+		currentUnavailable = !weatherComponentAvailable(sources.Current)
+		if !weatherComponentAvailable(sources.Rain) {
+			weather.RainSummary = ""
+			componentNotice = "降雨数据暂不可用"
+		}
+		if !weatherComponentAvailable(sources.Alerts) {
+			lastKnownWarning = !sources.Alerts.UpdatedAt.IsZero() && !sources.Alerts.Stale && len(weather.Warnings) > 0
+			if lastKnownWarning {
+				if componentNotice != "" {
+					componentNotice += " · "
+				}
+				componentNotice += "预警更新失败"
+			} else {
+				weather.Warnings = nil
+				if componentNotice != "" {
+					componentNotice = "降雨/预警暂不可用"
+				} else {
+					componentNotice = "预警数据暂不可用"
+				}
+			}
+		}
 	}
-	value := compactNumber(math.Round(weather.Temperature)) + "° · " + strings.TrimSpace(weather.Condition)
+	if currentUnavailable || invalidNumber(weather.Temperature) || strings.TrimSpace(weather.Condition) == "" {
+		return Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用", Detail: "天气暂不可用"}, true
+	}
+	value := weatherTemperature(weather.Temperature, weather.Units) + " · " + strings.TrimSpace(weather.Condition)
 	detail := compactRainSummary(weather.RainSummary)
 	dry := detail == "未来2小时无明显降雨"
 	tone := "active"
 	if dry && weather.FeelsLike != nil && weather.HumidityPercent != nil {
-		detail = "体感" + compactNumber(math.Round(*weather.FeelsLike)) + "° · 湿度" + compactNumber(math.Round(*weather.HumidityPercent)) + "%"
+		detail = "体感" + weatherTemperature(*weather.FeelsLike, weather.Units) + " · 湿度" + compactNumber(math.Round(*weather.HumidityPercent)) + "%"
 	}
 	if dry {
 		if hazard := weatherHazardDetail(weather); hazard != "" {
@@ -550,6 +580,9 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	if len(weather.Warnings) > 0 {
 		if summary, warningTone := weatherWarningSummary(weather.Warnings); summary != "" {
 			detail = summary
+			if lastKnownWarning {
+				detail = "上次预警：" + detail
+			}
 			tone = warningTone
 		}
 	}
@@ -563,7 +596,27 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	} else if hazard := weatherHazardDetail(weather); hazard != "" && !strings.Contains(detail, hazard) {
 		detail += " · " + hazard
 	}
+	if componentNotice != "" {
+		if detail != "" {
+			detail += " · "
+		}
+		detail += componentNotice
+		if tone == "active" {
+			tone = "warn"
+		}
+	}
 	return Activity{ID: "weather", Icon: weatherIcon(weather.ConditionCode), Tone: tone, Value: value, Detail: detail}, true
+}
+
+func weatherComponentAvailable(source model.WeatherComponent) bool {
+	return !source.UpdatedAt.IsZero() && !source.Stale && source.Error == ""
+}
+
+func weatherTemperature(celsius float64, units string) string {
+	if units == "imperial" {
+		return compactNumber(math.Round(celsius*9/5+32)) + "°F"
+	}
+	return compactNumber(math.Round(celsius)) + "°"
 }
 
 func weatherHazardDetail(weather model.WeatherStatus) string {
@@ -620,7 +673,11 @@ func weatherActivities(module model.Module[model.WeatherStatus]) []Activity {
 		return nil
 	}
 	result := []Activity{current}
-	if module.Stale || module.Error != "" {
+	forecastUnavailable := module.Stale || module.Error != ""
+	if components := module.Data.Components; components != nil {
+		forecastUnavailable = !weatherComponentAvailable(components.Forecast)
+	}
+	if forecastUnavailable {
 		return result
 	}
 	for _, forecast := range module.Data.Forecasts {
@@ -632,7 +689,7 @@ func weatherActivities(module model.Module[model.WeatherStatus]) []Activity {
 		}
 		result = append(result, Activity{
 			ID: "weather:forecast:" + strconv.Itoa(len(result)-1), Icon: weatherIcon(forecast.ConditionCode), Tone: "neutral",
-			Value: strings.TrimSpace(forecast.Condition), Detail: compactNumber(math.Round(forecast.TemperatureMin)) + "°–" + compactNumber(math.Round(forecast.TemperatureMax)) + "° · 雨" + compactNumber(math.Round(forecast.PrecipitationProbability*100)) + "%",
+			Value: strings.TrimSpace(forecast.Condition), Detail: weatherTemperature(forecast.TemperatureMin, module.Data.Units) + "–" + weatherTemperature(forecast.TemperatureMax, module.Data.Units) + " · 雨" + compactNumber(math.Round(forecast.PrecipitationProbability*100)) + "%",
 		})
 	}
 	return result

@@ -75,7 +75,6 @@ internal sealed class DesktopForm : Form
             ? "attached to desktop host"
             : "desktop host attachment failed; continuing as a normal window");
         PlaceInitialWindow();
-        initialPlacementComplete = true;
         tray = new TrayMenu(this);
         StartupLog.Write("tray icon created");
         ApplyLockedStyle();
@@ -210,7 +209,7 @@ internal sealed class DesktopForm : Form
         if (!browserReady || showingFallback) return;
         showingFallback = true;
         browser.NavigateToString(FallbackPage.Create(serverOrigin.AbsoluteUri));
-        ResizeAndClamp(388, 116);
+        ResizeAndClamp(388, 116, actualDashboardSize: false);
         retryTimer.Start();
     }
 
@@ -335,15 +334,18 @@ internal sealed class DesktopForm : Form
         ClampToVisibleArea();
     }
 
-    private void ResizeAndClamp(int width, int height)
+    private void ResizeAndClamp(int width, int height, bool actualDashboardSize = true)
     {
-        lastCssSize = new Size(width, height);
+        if (actualDashboardSize) lastCssSize = new Size(width, height);
         var scale = DeviceDpi / 96d;
         var pixels = CssPixelSize.ToRawPixels(width, height, scale);
         var current = CurrentBounds();
-        var resized = WindowPlacement.Resize(current, pixels.Width, pixels.Height, WorkAreas());
+        var resized = initialPlacementComplete
+            ? WindowPlacement.Resize(current, pixels.Width, pixels.Height, WorkAreas())
+            : WindowPlacement.Initial(new PixelPoint(settings.X, settings.Y), pixels.Width, pixels.Height, InitialWorkAreas());
         if (!NativeMethods.TrySetWindowBoundsFromScreen(Handle, resized))
             Bounds = new Rectangle(resized.X, resized.Y, resized.Width, resized.Height);
+        if (actualDashboardSize) initialPlacementComplete = true;
         PersistPosition();
     }
 
@@ -372,6 +374,11 @@ internal sealed class DesktopForm : Form
             screen.WorkingArea.Y,
             screen.WorkingArea.Width,
             screen.WorkingArea.Height))
+        .ToArray();
+
+    private static ScreenRect[] InitialWorkAreas() => Screen.AllScreens
+        .OrderByDescending(screen => screen.Primary)
+        .Select(screen => new ScreenRect(screen.WorkingArea.X, screen.WorkingArea.Y, screen.WorkingArea.Width, screen.WorkingArea.Height))
         .ToArray();
 
     private void PersistPosition()

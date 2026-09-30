@@ -99,12 +99,12 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 			}},
 			{Name: "system", Every: time.Minute, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
 				value, err := readers.CollectSystem(ctx)
-				options.Store.SetSystem(value, err)
+				options.Store.SetSystemAt(value, err, readers.SourceReadAt("system"))
 				return err
 			}},
 			{Name: "memory", Every: time.Minute, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
 				value, err := readers.CollectMemory(ctx)
-				options.Store.SetMemory(value, err)
+				options.Store.SetMemoryAt(value, err, readers.SourceReadAt("memory"))
 				return err
 			}},
 			{Name: "pools", Every: time.Minute, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
@@ -119,7 +119,7 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 			}},
 			{Name: "smart", Every: time.Minute, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
 				value, err := readers.CollectDiskHealth(ctx)
-				options.Store.SetTrueNASDiskHealth(value, err)
+				options.Store.SetTrueNASDiskHealthAt(value, err, readers.SourceReadAt("smart"))
 				return err
 			}},
 			{Name: "replication", Every: time.Minute, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
@@ -134,7 +134,7 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 			}},
 			{Name: "alerts", Every: 30 * time.Second, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
 				value, err := readers.CollectAlerts(ctx)
-				options.Store.SetAlerts(value, err)
+				options.Store.SetAlertsAt(value, err, readers.SourceReadAt("alerts"))
 				return err
 			}},
 		}
@@ -197,8 +197,15 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 	case "home_assistant":
 		cfg := config.HomeAssistantConfig{Enabled: true, URL: stringSetting(settings, "url", ""), FanEntityID: stringSetting(settings, "entity_id", ""), PowerEntityID: stringSetting(settings, "power_entity_id", ""), FanName: stringSetting(settings, "name", "设备"), RemindAfter: config.Duration{Duration: durationSetting(settings, "remind_after", 2*time.Hour)}, CallTimeout: config.Duration{Duration: timeout}}
 		client := homeassistant.New(cfg, secretString(secrets, "token"), httpClient)
-		options.Store.SetHome(model.FanStatus{Enabled: true, Name: cfg.FanName, State: "unavailable", RemindAfterSeconds: int64(cfg.RemindAfter.Duration / time.Second)}, nil)
+		initialized := false
 		jobs := []collector.Job{{Name: id + ":fan", Every: metadata.MinimumRefresh, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: func(ctx context.Context) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !initialized {
+				options.Store.SetHome(model.FanStatus{Enabled: true, Name: cfg.FanName, State: "unavailable", RemindAfterSeconds: int64(cfg.RemindAfter.Duration / time.Second)}, nil)
+				initialized = true
+			}
 			value, err := client.CurrentFan(ctx)
 			options.Store.SetHome(value, err)
 			return err

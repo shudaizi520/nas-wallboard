@@ -14,6 +14,15 @@ public static class WindowPlacement
     public static bool ShouldPersist(bool initialPlacementComplete, PixelPoint current, PixelPoint saved) =>
         initialPlacementComplete && current != saved;
 
+    public static ScreenRect Initial(PixelPoint saved, int width, int height, IReadOnlyList<ScreenRect> workAreas)
+    {
+        if (saved.X != -1 || saved.Y != -1)
+            return Clamp(new ScreenRect(saved.X, saved.Y, width, height), workAreas);
+        return workAreas.Count == 0
+            ? new ScreenRect(0, 0, width, height)
+            : TopRight(workAreas[0], width, height);
+    }
+
     public static ScreenRect TopRight(ScreenRect workArea, int width, int height)
     {
         var fittedWidth = Math.Min(Math.Max(width, 1), workArea.Width);

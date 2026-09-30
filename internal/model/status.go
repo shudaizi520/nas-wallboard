@@ -92,21 +92,38 @@ type AlertStatus struct {
 }
 
 type WeatherStatus struct {
-	Enabled                 bool              `json:"enabled"`
-	Name                    string            `json:"name"`
-	Temperature             float64           `json:"temperature"`
-	FeelsLike               *float64          `json:"feels_like,omitempty"`
-	HumidityPercent         *float64          `json:"humidity_percent,omitempty"`
-	WindScale               *int              `json:"wind_scale,omitempty"`
-	WindGustMetersPerSecond *float64          `json:"wind_gust_meters_per_second,omitempty"`
-	UVIndex                 *float64          `json:"uv_index,omitempty"`
-	Condition               string            `json:"condition"`
-	ConditionCode           string            `json:"condition_code"`
-	RainSummary             string            `json:"rain_summary,omitempty"`
-	Warnings                []WeatherWarning  `json:"warnings"`
-	Forecasts               []WeatherForecast `json:"forecasts,omitempty"`
-	Source                  string            `json:"source"`
-	Units                   string            `json:"units"`
+	Enabled                 bool               `json:"enabled"`
+	Name                    string             `json:"name"`
+	Temperature             float64            `json:"temperature"`
+	FeelsLike               *float64           `json:"feels_like,omitempty"`
+	HumidityPercent         *float64           `json:"humidity_percent,omitempty"`
+	WindScale               *int               `json:"wind_scale,omitempty"`
+	WindGustMetersPerSecond *float64           `json:"wind_gust_meters_per_second,omitempty"`
+	UVIndex                 *float64           `json:"uv_index,omitempty"`
+	Condition               string             `json:"condition"`
+	ConditionCode           string             `json:"condition_code"`
+	RainSummary             string             `json:"rain_summary,omitempty"`
+	Warnings                []WeatherWarning   `json:"warnings"`
+	Forecasts               []WeatherForecast  `json:"forecasts,omitempty"`
+	Source                  string             `json:"source"`
+	Units                   string             `json:"units"`
+	Components              *WeatherComponents `json:"components,omitempty"`
+}
+
+// Each weather source owns its freshness; successful sibling reads never renew it.
+type WeatherComponent struct {
+	UpdatedAt   time.Time `json:"updated_at"`
+	AttemptedAt time.Time `json:"attempted_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	Error       string    `json:"error,omitempty"`
+	Stale       bool      `json:"stale"`
+}
+
+type WeatherComponents struct {
+	Current  WeatherComponent `json:"current"`
+	Rain     WeatherComponent `json:"rain"`
+	Alerts   WeatherComponent `json:"alerts"`
+	Forecast WeatherComponent `json:"forecast"`
 }
 
 type WeatherForecast struct {

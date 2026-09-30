@@ -35,11 +35,7 @@ type minutelyPrecipitation struct {
 }
 
 type refreshCache struct {
-	status     model.WeatherStatus
-	currentAt  time.Time
-	rainAt     time.Time
-	alertsAt   time.Time
-	forecastAt time.Time
+	status model.WeatherStatus
 }
 
 type Client struct {
@@ -99,39 +95,56 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 	if !next.status.Enabled {
 		next.status = c.emptyStatus()
 	}
-	if refreshDue(now, next.currentAt, currentRefreshInterval) {
-		if err := c.readCurrent(ctx, &next.status); err != nil {
-			return model.WeatherStatus{}, err
-		}
-		next.currentAt = now
+	components := model.WeatherComponents{}
+	if next.status.Components != nil {
+		components = *next.status.Components
 	}
-	if refreshDue(now, next.rainAt, rainRefreshInterval) {
-		if err := c.readRain(ctx, &next.status); err != nil {
-			return model.WeatherStatus{}, err
+	next.status.Components = &components
+	var failures []error
+	for _, source := range []struct {
+		metadata *model.WeatherComponent
+		interval time.Duration
+		read     func(context.Context, *model.WeatherStatus) error
+	}{
+		{&components.Current, currentRefreshInterval, c.readCurrent},
+		{&components.Rain, rainRefreshInterval, c.readRain},
+		{&components.Alerts, alertRefreshInterval, c.readAlerts},
+		{&components.Forecast, forecastRefreshInterval, c.readForecast},
+	} {
+		metadata := source.metadata
+		if refreshDue(now, metadata.AttemptedAt, source.interval) {
+			metadata.AttemptedAt = now
+			// Readers stage their output and only commit after a successful response.
+			if err := source.read(ctx, &next.status); err != nil {
+				metadata.Error = "unavailable"
+				failures = append(failures, err)
+			} else {
+				metadata.UpdatedAt = now
+				metadata.ExpiresAt = now.Add(3 * source.interval)
+				metadata.Error = ""
+			}
+		} else if metadata.Error != "" {
+			failures = append(failures, errors.New("weather component unavailable"))
 		}
-		next.rainAt = now
-	}
-	if refreshDue(now, next.alertsAt, alertRefreshInterval) {
-		if err := c.readAlerts(ctx, &next.status); err != nil {
-			return model.WeatherStatus{}, err
-		}
-		next.alertsAt = now
-	}
-	if refreshDue(now, next.forecastAt, forecastRefreshInterval) {
-		if err := c.readForecast(ctx, &next.status); err != nil {
-			return model.WeatherStatus{}, err
-		}
-		next.forecastAt = now
+		metadata.Stale = metadata.UpdatedAt.IsZero() || now.After(metadata.ExpiresAt)
 	}
 	c.cache = next
-	return next.status, nil
+	// A caller must not be able to mutate the cached component timestamps.
+	output := next.status
+	copy := components
+	output.Components = &copy
+	return output, errors.Join(failures...)
 }
 
 // RefreshedAt is the last successful upstream component refresh, not the last
 // call to Refresh. Cached scheduler ticks must not change collection freshness.
 func (c *Client) RefreshedAt() time.Time {
-	latest := c.cache.currentAt
-	for _, stamp := range []time.Time{c.cache.rainAt, c.cache.alertsAt, c.cache.forecastAt} {
+	if c.cache.status.Components == nil {
+		return time.Time{}
+	}
+	components := c.cache.status.Components
+	latest := components.Current.UpdatedAt
+	for _, stamp := range []time.Time{components.Rain.UpdatedAt, components.Alerts.UpdatedAt, components.Forecast.UpdatedAt} {
 		if stamp.After(latest) {
 			latest = stamp
 		}
