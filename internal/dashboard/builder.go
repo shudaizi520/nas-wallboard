@@ -562,7 +562,20 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 		}
 	}
 	if currentUnavailable || invalidNumber(weather.Temperature) || strings.TrimSpace(weather.Condition) == "" {
-		return Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用", Detail: "天气暂不可用"}, true
+		missing := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用", Detail: "天气暂不可用"}
+		if sources := weather.Components; sources != nil && (weatherComponentAvailable(sources.Alerts) || lastKnownWarning) {
+			if summary, warningTone := weatherWarningSummary(weather.Warnings); summary != "" {
+				if lastKnownWarning {
+					summary = "上次预警：" + summary
+				}
+				missing.Detail = summary + " · 天气暂不可用"
+				if lastKnownWarning {
+					missing.Detail += " · 预警更新失败"
+				}
+				missing.Tone = warningTone
+			}
+		}
+		return missing, true
 	}
 	value := weatherTemperature(weather.Temperature, weather.Units) + " · " + strings.TrimSpace(weather.Condition)
 	detail := compactRainSummary(weather.RainSummary)

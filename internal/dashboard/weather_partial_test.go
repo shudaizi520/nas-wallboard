@@ -38,6 +38,15 @@ func TestTemporaryAlertFailureRetainsUnexpiredOfficialWarningAsLastKnown(t *test
 	}
 }
 
+func TestOfficialWarningStillShowsWhenCurrentWeatherAloneFails(t *testing.T) {
+	stamp := time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)
+	module := model.Module[model.WeatherStatus]{Error: "unavailable", Partial: true, Data: model.WeatherStatus{Enabled: true, Warnings: []model.WeatherWarning{{Title: "暴雨橙色预警", Color: "orange"}}, Components: &model.WeatherComponents{Current: model.WeatherComponent{Error: "unavailable"}, Alerts: model.WeatherComponent{UpdatedAt: stamp}}}}
+	got, _ := weatherActivity(module)
+	if got.Value != "不可用" || !strings.Contains(got.Detail, "暴雨橙色预警") || !strings.Contains(got.Detail, "天气暂不可用") {
+		t.Fatalf("current failure hides successful official warning: %#v", got)
+	}
+}
+
 func TestImperialWeatherConvertsAllDisplayedTemperaturesOnly(t *testing.T) {
 	feel := 30.0
 	humidity := 50.0
