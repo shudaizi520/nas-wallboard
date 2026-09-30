@@ -161,3 +161,78 @@ func TestManagerBuildFailureDoesNotStopWorkingCollectorOrOtherInstances(t *testi
 	}
 	manager.Close()
 }
+
+type handoverCollector struct {
+	started  chan struct{}
+	canceled chan struct{}
+	release  chan struct{}
+	publish  func()
+}
+
+func (c *handoverCollector) Run(ctx context.Context) error {
+	close(c.started)
+	<-ctx.Done()
+	close(c.canceled)
+	<-c.release
+	c.publish()
+	return nil
+}
+
+func TestManagerWaitsForOldFinalPublicationBeforeStartingReplacement(t *testing.T) {
+	var mu sync.Mutex
+	last := ""
+	old := &handoverCollector{started: make(chan struct{}), canceled: make(chan struct{}), release: make(chan struct{}), publish: func() { mu.Lock(); last = "old"; mu.Unlock() }}
+	replacement := &publishingCollector{started: make(chan struct{}), publish: func() { mu.Lock(); last = "new"; mu.Unlock() }}
+	manager, _, _ := managerFixture(t, func(config Config, _ Secrets) (Collector, error) {
+		if config["url"] == "old" {
+			return old, nil
+		}
+		return replacement, nil
+	})
+	first := persist.Integration{ID: "one", Type: "plex", Enabled: true, Config: map[string]any{"url": "old"}}
+	if err := manager.Apply(context.Background(), nil, []persist.Integration{first}); err != nil {
+		t.Fatal(err)
+	}
+	waitClosed(t, old.started, "old collector did not start")
+	second := first
+	second.Config = map[string]any{"url": "new"}
+	applied := make(chan error, 1)
+	go func() {
+		applied <- manager.Apply(context.Background(), []persist.Integration{first}, []persist.Integration{second})
+	}()
+	waitClosed(t, old.canceled, "old collector was not canceled")
+	// If a replacement is started while the old collector drains, its new
+	// value can be overwritten by the old request's final publication.
+	select {
+	case <-replacement.started:
+		close(old.release)
+		<-applied
+		manager.Close()
+		t.Fatal("replacement published before old collector exited")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(old.release)
+	if err := <-applied; err != nil {
+		t.Fatal(err)
+	}
+	waitClosed(t, replacement.started, "replacement collector did not start")
+	mu.Lock()
+	got := last
+	mu.Unlock()
+	manager.Close()
+	if got != "new" {
+		t.Fatalf("last published value = %q, want new", got)
+	}
+}
+
+type publishingCollector struct {
+	started chan struct{}
+	publish func()
+}
+
+func (c *publishingCollector) Run(ctx context.Context) error {
+	c.publish()
+	close(c.started)
+	<-ctx.Done()
+	return nil
+}
