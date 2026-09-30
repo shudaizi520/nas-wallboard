@@ -89,16 +89,21 @@ type AlertStatus struct {
 }
 
 type WeatherStatus struct {
-	Enabled       bool              `json:"enabled"`
-	Name          string            `json:"name"`
-	Temperature   float64           `json:"temperature"`
-	Condition     string            `json:"condition"`
-	ConditionCode string            `json:"condition_code"`
-	RainSummary   string            `json:"rain_summary,omitempty"`
-	Warnings      []WeatherWarning  `json:"warnings"`
-	Forecasts     []WeatherForecast `json:"forecasts,omitempty"`
-	Source        string            `json:"source"`
-	Units         string            `json:"units"`
+	Enabled                 bool              `json:"enabled"`
+	Name                    string            `json:"name"`
+	Temperature             float64           `json:"temperature"`
+	FeelsLike               *float64          `json:"feels_like,omitempty"`
+	HumidityPercent         *float64          `json:"humidity_percent,omitempty"`
+	WindScale               *int              `json:"wind_scale,omitempty"`
+	WindGustMetersPerSecond *float64          `json:"wind_gust_meters_per_second,omitempty"`
+	UVIndex                 *float64          `json:"uv_index,omitempty"`
+	Condition               string            `json:"condition"`
+	ConditionCode           string            `json:"condition_code"`
+	RainSummary             string            `json:"rain_summary,omitempty"`
+	Warnings                []WeatherWarning  `json:"warnings"`
+	Forecasts               []WeatherForecast `json:"forecasts,omitempty"`
+	Source                  string            `json:"source"`
+	Units                   string            `json:"units"`
 }
 
 type WeatherForecast struct {

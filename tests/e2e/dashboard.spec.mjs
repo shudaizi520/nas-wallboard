@@ -277,7 +277,7 @@ for (const viewport of [
     }));
     expect.soft(networkColors.up).toBe(networkColors.down);
     await expect(page.getByText('天气', {exact: true})).toHaveCount(0);
-    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('未来2小时无明显降雨');
+    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('体感31° · 湿度64%');
     const weather = page.locator('[data-key="weather"]');
     await expect(weather).toHaveAttribute('data-icon', 'weather-sunny');
     await expect(weather.locator('[data-field="icon"]')).toHaveAttribute('href', '#icon-weather-sunny');
@@ -455,7 +455,7 @@ for (const viewport of [
     });
     await expect(page.locator('[data-bind="connection"]')).toHaveAttribute('data-tone', 'bad');
     await expect(page.locator('[data-key="cpu"] [data-field="value"]')).toHaveText('18.4% · 56°');
-    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('未来2小时无明显降雨');
+    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('体感31° · 湿度64%');
     expect(consoleErrors).toEqual([]);
 
     await page.evaluate(async (data) => {

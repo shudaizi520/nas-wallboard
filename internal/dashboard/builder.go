@@ -526,7 +526,17 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	}
 	value := compactNumber(math.Round(weather.Temperature)) + "° · " + strings.TrimSpace(weather.Condition)
 	detail := compactRainSummary(weather.RainSummary)
+	dry := detail == "未来2小时无明显降雨"
 	tone := "active"
+	if dry && weather.FeelsLike != nil && weather.HumidityPercent != nil {
+		detail = "体感" + compactNumber(math.Round(*weather.FeelsLike)) + "° · 湿度" + compactNumber(math.Round(*weather.HumidityPercent)) + "%"
+	}
+	if dry {
+		if hazard := weatherHazardDetail(weather); hazard != "" {
+			detail = hazard
+			tone = "warn"
+		}
+	}
 	if len(weather.Warnings) > 0 {
 		if summary, warningTone := weatherWarningSummary(weather.Warnings); summary != "" {
 			detail = summary
@@ -534,6 +544,54 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 		}
 	}
 	return Activity{ID: "weather", Icon: weatherIcon(weather.ConditionCode), Tone: tone, Value: value, Detail: detail}, true
+}
+
+func weatherHazardDetail(weather model.WeatherStatus) string {
+	wind := ""
+	reportedWindScale := -1
+	if weather.WindScale != nil && *weather.WindScale >= 6 && *weather.WindScale <= 17 {
+		reportedWindScale = *weather.WindScale
+		wind = "强风" + strconv.Itoa(reportedWindScale) + "级"
+	}
+	if weather.WindGustMetersPerSecond != nil {
+		gust := *weather.WindGustMetersPerSecond
+		if !invalidNumber(gust) && gust >= 17.2 {
+			gustScale := beaufortScale(gust)
+			if gustScale > reportedWindScale {
+				wind = "阵风" + strconv.Itoa(gustScale) + "级"
+			}
+		}
+	}
+
+	uv := ""
+	if weather.UVIndex != nil {
+		index := *weather.UVIndex
+		if !invalidNumber(index) && index >= 8 && index <= 15 {
+			label := "很强"
+			if index >= 11 {
+				label = "极强"
+			}
+			uv = "紫外线" + label + " · 指数" + compactNumber(math.Round(index))
+		}
+	}
+
+	if wind != "" && uv != "" {
+		return wind + " · 紫外线" + compactNumber(math.Round(*weather.UVIndex))
+	}
+	if wind != "" {
+		return wind
+	}
+	return uv
+}
+
+func beaufortScale(metersPerSecond float64) int {
+	lowerBounds := [...]float64{0, 0.3, 1.6, 3.4, 5.5, 8, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.7, 37, 41.5, 46.2, 51, 56.1}
+	for scale := len(lowerBounds) - 1; scale > 0; scale-- {
+		if metersPerSecond >= lowerBounds[scale] {
+			return scale
+		}
+	}
+	return 0
 }
 
 func weatherActivities(module model.Module[model.WeatherStatus]) []Activity {

@@ -108,7 +108,7 @@ test('current weather detail uses one line when short and at most two when long'
           <span class="activity-icon"></span>
           <div class="activity-copy">
             <div class="activity-line"><strong></strong><span data-field="value">33° 多云</span></div>
-            <p data-field="detail">未来2小时无明显降雨</p>
+            <p data-field="detail">体感31° · 湿度64%</p>
           </div>
           <i class="activity-signal"></i>
         </article>
@@ -133,12 +133,15 @@ test('current weather detail uses one line when short and at most two when long'
   });
 
   const short = await measure();
+  await detail.evaluate((node) => { node.textContent = '强风6级 · 紫外线8'; });
+  const hazard = await measure();
   await detail.evaluate((node) => { node.textContent = '25分钟后开始下大雨，45分钟后雨势逐渐减弱'; });
   const long = await measure();
   await detail.evaluate((node) => { node.textContent = '25分钟后开始下大雨，45分钟后雨势逐渐减弱，随后可能再次出现强降雨，请注意关窗'; });
   const veryLong = await measure();
 
   expect(short.height).toBeLessThanOrEqual(short.lineHeight + 1);
+  expect(hazard.height).toBeLessThanOrEqual(hazard.lineHeight + 1);
   expect(long.height, JSON.stringify({short, long, veryLong})).toBeGreaterThan(short.height + 1);
   expect(veryLong.height).toBeLessThanOrEqual(short.lineHeight * 2 + 1);
   expect(veryLong.overflow).toBe('hidden');

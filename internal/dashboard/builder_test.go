@@ -119,7 +119,7 @@ func TestBuilderShowsNetworkDiskHealthAndWeather(t *testing.T) {
 		Realtime:   model.Module[model.RealtimeStatus]{Data: realtime},
 		Disks:      model.Module[[]model.DiskStatus]{Data: []model.DiskStatus{{Name: "sda", Model: match.Model, SizeBytes: match.SizeBytes, Temperature: 39}}},
 		DiskHealth: model.Module[[]model.DiskHealthStatus]{UpdatedAt: time.Unix(50, 0), Data: []model.DiskHealthStatus{{Name: "sda", Model: match.Model, SizeBytes: match.SizeBytes, State: "healthy"}}},
-		Weather:    model.Module[model.WeatherStatus]{Data: model.WeatherStatus{Enabled: true, Name: "深圳", Temperature: 29.4, Condition: "多云", ConditionCode: "101", RainSummary: "未来两小时无降水", Source: "和风天气"}},
+		Weather:    model.Module[model.WeatherStatus]{Data: model.WeatherStatus{Enabled: true, Name: "深圳", Temperature: 29.4, FeelsLike: float64Pointer(34.6), HumidityPercent: float64Pointer(64), Condition: "多云", ConditionCode: "101", RainSummary: "未来两小时无降水", Source: "和风天气"}},
 	}
 	view := builder.Build(snapshot, time.Unix(100, 0))
 	wantMetrics := []Metric{
@@ -131,9 +131,56 @@ func TestBuilderShowsNetworkDiskHealthAndWeather(t *testing.T) {
 	if !equalMetrics(view.Metrics, wantMetrics) {
 		t.Fatalf("metrics = %#v, want %#v", view.Metrics, wantMetrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "未来2小时无明显降雨"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "体感35° · 湿度64%"}
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
+	}
+}
+
+func TestWeatherActivityShowsRainInsteadOfComfortWhenRainIsApproaching(t *testing.T) {
+	got, ok := weatherActivity(model.Module[model.WeatherStatus]{Data: model.WeatherStatus{
+		Enabled: true, Temperature: 29, FeelsLike: float64Pointer(35), HumidityPercent: float64Pointer(70),
+		WindScale: intPointer(7), UVIndex: float64Pointer(10),
+		Condition: "多云", ConditionCode: "101", RainSummary: "约半小时后可能有雨",
+	}})
+	want := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "约半小时后可能有雨"}
+	if !ok || got != want {
+		t.Fatalf("weather activity = %#v, %v; want %#v, true", got, ok, want)
+	}
+}
+
+func float64Pointer(value float64) *float64 { return &value }
+func intPointer(value int) *int             { return &value }
+
+func TestWeatherActivityOnlyShowsConservativeHazardSignals(t *testing.T) {
+	tests := []struct {
+		name       string
+		windScale  *int
+		windGust   *float64
+		uvIndex    *float64
+		wantDetail string
+		wantTone   string
+	}{
+		{name: "below every threshold", windScale: intPointer(5), windGust: float64Pointer(17.19), uvIndex: float64Pointer(7.99), wantDetail: "体感35° · 湿度64%", wantTone: "active"},
+		{name: "sustained force six", windScale: intPointer(6), wantDetail: "强风6级", wantTone: "warn"},
+		{name: "force eight gust", windScale: intPointer(4), windGust: float64Pointer(17.2), wantDetail: "阵风8级", wantTone: "warn"},
+		{name: "stronger sustained wind wins", windScale: intPointer(10), windGust: float64Pointer(17.2), wantDetail: "强风10级", wantTone: "warn"},
+		{name: "very high ultraviolet", uvIndex: float64Pointer(8), wantDetail: "紫外线很强 · 指数8", wantTone: "warn"},
+		{name: "extreme ultraviolet", uvIndex: float64Pointer(11), wantDetail: "紫外线极强 · 指数11", wantTone: "warn"},
+		{name: "wind and ultraviolet", windScale: intPointer(6), uvIndex: float64Pointer(8), wantDetail: "强风6级 · 紫外线8", wantTone: "warn"},
+		{name: "invalid values", windScale: intPointer(18), windGust: float64Pointer(-1), uvIndex: float64Pointer(16), wantDetail: "体感35° · 湿度64%", wantTone: "active"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := weatherActivity(model.Module[model.WeatherStatus]{Data: model.WeatherStatus{
+				Enabled: true, Temperature: 29, FeelsLike: float64Pointer(35), HumidityPercent: float64Pointer(64),
+				WindScale: tt.windScale, WindGustMetersPerSecond: tt.windGust, UVIndex: tt.uvIndex,
+				Condition: "多云", ConditionCode: "101", RainSummary: "未来2小时无明显降雨",
+			}})
+			if !ok || got.Detail != tt.wantDetail || got.Tone != tt.wantTone {
+				t.Fatalf("weather activity = %#v, %v; want detail %q, tone %q", got, ok, tt.wantDetail, tt.wantTone)
+			}
+		})
 	}
 }
 
@@ -164,7 +211,11 @@ func TestBuilderHighlightsSMARTFailureAndWeatherWarning(t *testing.T) {
 	snapshot := model.Snapshot{
 		Disks:      model.Module[[]model.DiskStatus]{Data: []model.DiskStatus{{Name: "sda", Model: match.Model, SizeBytes: match.SizeBytes, Temperature: 42}}},
 		DiskHealth: model.Module[[]model.DiskHealthStatus]{UpdatedAt: time.Unix(50, 0), Data: []model.DiskHealthStatus{{Name: "sda", Model: match.Model, SizeBytes: match.SizeBytes, State: "failed"}}},
-		Weather:    model.Module[model.WeatherStatus]{Data: model.WeatherStatus{Enabled: true, Name: "深圳", Temperature: 31, Condition: "雷阵雨", ConditionCode: "302", RainSummary: "正在降雨", Source: "和风天气", Warnings: []model.WeatherWarning{{Title: "深圳市气象台发布高温黄色预警", Severity: "severe", Color: "orange"}}}},
+		Weather: model.Module[model.WeatherStatus]{Data: model.WeatherStatus{
+			Enabled: true, Name: "深圳", Temperature: 31, WindScale: intPointer(7), UVIndex: float64Pointer(10),
+			Condition: "雷阵雨", ConditionCode: "302", RainSummary: "正在降雨", Source: "和风天气",
+			Warnings: []model.WeatherWarning{{Title: "深圳市气象台发布高温黄色预警", Severity: "severe", Color: "orange"}},
+		}},
 	}
 	view := builder.Build(snapshot, time.Unix(100, 0))
 	if len(view.Metrics) != 1 || view.Metrics[0] != (Metric{ID: "disk_temperature", Icon: "disk", Value: "42° · SMART", Tone: "bad"}) {

@@ -177,6 +177,48 @@ func TestStoreSnapshotCannotMutateStoreState(t *testing.T) {
 	}
 }
 
+func TestStoreWeatherPointerMeasurementsAreIsolated(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	store := testStore(&now)
+	weather := model.WeatherStatus{
+		FeelsLike:               stateFloat64Pointer(34),
+		HumidityPercent:         stateFloat64Pointer(64),
+		WindScale:               stateIntPointer(6),
+		WindGustMetersPerSecond: stateFloat64Pointer(18.1),
+		UVIndex:                 stateFloat64Pointer(8),
+	}
+	store.SetWeather(weather, nil)
+
+	*weather.FeelsLike = 99
+	*weather.HumidityPercent = 99
+	*weather.WindScale = 17
+	*weather.WindGustMetersPerSecond = 99
+	*weather.UVIndex = 15
+	first := store.Snapshot()
+	if first.Weather.Data.FeelsLike == nil || *first.Weather.Data.FeelsLike != 34 ||
+		first.Weather.Data.HumidityPercent == nil || *first.Weather.Data.HumidityPercent != 64 ||
+		first.Weather.Data.WindScale == nil || *first.Weather.Data.WindScale != 6 ||
+		first.Weather.Data.WindGustMetersPerSecond == nil || *first.Weather.Data.WindGustMetersPerSecond != 18.1 ||
+		first.Weather.Data.UVIndex == nil || *first.Weather.Data.UVIndex != 8 {
+		t.Fatalf("SetWeather retained caller pointers: %#v", first.Weather.Data)
+	}
+
+	*first.Weather.Data.FeelsLike = 1
+	*first.Weather.Data.HumidityPercent = 1
+	*first.Weather.Data.WindScale = 1
+	*first.Weather.Data.WindGustMetersPerSecond = 1
+	*first.Weather.Data.UVIndex = 1
+	second := store.Snapshot()
+	if *second.Weather.Data.FeelsLike != 34 || *second.Weather.Data.HumidityPercent != 64 ||
+		*second.Weather.Data.WindScale != 6 || *second.Weather.Data.WindGustMetersPerSecond != 18.1 ||
+		*second.Weather.Data.UVIndex != 8 {
+		t.Fatalf("snapshot retained weather pointers: %#v", second.Weather.Data)
+	}
+}
+
+func stateFloat64Pointer(value float64) *float64 { return &value }
+func stateIntPointer(value int) *int             { return &value }
+
 func TestStoreExternalSourcesFailIndependently(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	store := testStore(&now)

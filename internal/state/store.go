@@ -259,6 +259,26 @@ func (s *Store) Snapshot() model.Snapshot {
 }
 
 func cloneWeatherStatus(value model.WeatherStatus) model.WeatherStatus {
+	if value.FeelsLike != nil {
+		copy := *value.FeelsLike
+		value.FeelsLike = &copy
+	}
+	if value.HumidityPercent != nil {
+		copy := *value.HumidityPercent
+		value.HumidityPercent = &copy
+	}
+	if value.WindScale != nil {
+		copy := *value.WindScale
+		value.WindScale = &copy
+	}
+	if value.WindGustMetersPerSecond != nil {
+		copy := *value.WindGustMetersPerSecond
+		value.WindGustMetersPerSecond = &copy
+	}
+	if value.UVIndex != nil {
+		copy := *value.UVIndex
+		value.UVIndex = &copy
+	}
 	value.Warnings = append([]model.WeatherWarning(nil), value.Warnings...)
 	value.Forecasts = append([]model.WeatherForecast(nil), value.Forecasts...)
 	return value

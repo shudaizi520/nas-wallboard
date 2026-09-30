@@ -148,11 +148,47 @@ func (c *Client) readCurrent(ctx context.Context, result *model.WeatherStatus) e
 		Temperature struct {
 			Value float64 `json:"value"`
 		} `json:"temperature"`
+		FeelsLike *struct {
+			Value float64 `json:"value"`
+		} `json:"feelsLike"`
+		Humidity *float64 `json:"humidity"`
+		Wind     struct {
+			Scale *int `json:"scale"`
+		} `json:"wind"`
+		WindGust *struct {
+			Value float64 `json:"value"`
+		} `json:"windGust"`
+		UVIndex *float64 `json:"uvIndex"`
 	}
 	if err := c.getJSON(ctx, "/weather/v1/current/"+coordinates, url.Values{"lang": {"zh"}}, &current); err != nil {
 		return fmt.Errorf("read current weather: %w", err)
 	}
+	result.FeelsLike = nil
+	result.HumidityPercent = nil
+	result.WindScale = nil
+	result.WindGustMetersPerSecond = nil
+	result.UVIndex = nil
 	result.Temperature = current.Temperature.Value
+	if current.FeelsLike != nil {
+		value := current.FeelsLike.Value
+		result.FeelsLike = &value
+	}
+	if current.Humidity != nil && *current.Humidity >= 0 && *current.Humidity <= 1 {
+		value := *current.Humidity * 100
+		result.HumidityPercent = &value
+	}
+	if current.Wind.Scale != nil && *current.Wind.Scale >= 0 && *current.Wind.Scale <= 17 {
+		value := *current.Wind.Scale
+		result.WindScale = &value
+	}
+	if current.WindGust != nil && current.WindGust.Value >= 0 {
+		value := current.WindGust.Value
+		result.WindGustMetersPerSecond = &value
+	}
+	if current.UVIndex != nil && *current.UVIndex >= 0 && *current.UVIndex <= 15 {
+		value := *current.UVIndex
+		result.UVIndex = &value
+	}
 	result.Condition = strings.TrimSpace(current.Condition.Text)
 	result.ConditionCode = strings.TrimSpace(current.Condition.Code)
 	return nil

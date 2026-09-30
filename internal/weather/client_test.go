@@ -66,7 +66,16 @@ func TestQWeatherCombinesCurrentRainWarningsAndTwoFutureDays(t *testing.T) {
 			if request.URL.Query().Get("lang") != "zh" {
 				t.Errorf("weather query = %s", request.URL.RawQuery)
 			}
-			return response(http.StatusOK, `{"condition":{"text":"多云","code":"101"},"temperature":{"value":29.4,"unit":"°C"}}`), nil
+			return response(http.StatusOK, `{
+				"condition":{"text":"多云","code":"101"},
+				"temperature":{"value":29.4,"unit":"°C"},
+				"feelsLike":{"value":34.6,"unit":"°C"},
+				"humidity":0.64,
+				"wind":{"direction":{"degree":180,"compass":"s"},"speed":{"value":11.3,"unit":"m/s"},"scale":6},
+				"windGust":{"value":18.1,"unit":"m/s"},
+				"visibility":{"value":29800,"unit":"m"},
+				"uvIndex":8
+			}`), nil
 		case "/weather/v1/daily/22.54/114.06":
 			if request.URL.Query().Get("days") != "3" || request.URL.Query().Get("localTime") != "true" || request.URL.Query().Get("lang") != "zh" {
 				t.Errorf("daily query = %s", request.URL.RawQuery)
@@ -115,6 +124,12 @@ func TestQWeatherCombinesCurrentRainWarningsAndTwoFutureDays(t *testing.T) {
 	if requests.Load() != 4 || !got.Enabled || got.Name != "深圳" || got.Temperature != 29.4 || got.Condition != "多云" || got.ConditionCode != "101" || got.RainSummary != "约半小时后可能有雨" || got.Source != "和风天气" {
 		t.Fatalf("weather = %#v; requests=%d", got, requests.Load())
 	}
+	if got.FeelsLike == nil || *got.FeelsLike != 34.6 || got.HumidityPercent == nil || *got.HumidityPercent != 64 {
+		t.Fatalf("current comfort = feels-like %#v, humidity %#v", got.FeelsLike, got.HumidityPercent)
+	}
+	if got.WindScale == nil || *got.WindScale != 6 || got.WindGustMetersPerSecond == nil || *got.WindGustMetersPerSecond != 18.1 || got.UVIndex == nil || *got.UVIndex != 8 {
+		t.Fatalf("current hazards = wind-scale %#v, wind-gust %#v, uv %#v", got.WindScale, got.WindGustMetersPerSecond, got.UVIndex)
+	}
 	if len(got.Warnings) != 1 || got.Warnings[0].Title != "深圳市暴雨橙色预警" || got.Warnings[0].Severity != "severe" || got.Warnings[0].Color != "orange" {
 		t.Fatalf("warnings = %#v", got.Warnings)
 	}
@@ -126,6 +141,48 @@ func TestQWeatherCombinesCurrentRainWarningsAndTwoFutureDays(t *testing.T) {
 		t.Fatalf("forecasts = %#v, want %#v", got.Forecasts, wantForecasts)
 	}
 }
+
+func TestReadCurrentClearsOptionalMeasurementsWhenSourceOmitsThem(t *testing.T) {
+	client, err := New(weatherConfig(), &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"condition":{"text":"阴","code":"104"},"temperature":{"value":28,"unit":"°C"}}`), nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := model.WeatherStatus{
+		FeelsLike: float64TestPointer(34), HumidityPercent: float64TestPointer(80), WindScale: intTestPointer(7),
+		WindGustMetersPerSecond: float64TestPointer(18), UVIndex: float64TestPointer(9),
+	}
+	if err := client.readCurrent(context.Background(), &status); err != nil {
+		t.Fatalf("readCurrent() error = %v", err)
+	}
+	if status.FeelsLike != nil || status.HumidityPercent != nil || status.WindScale != nil || status.WindGustMetersPerSecond != nil || status.UVIndex != nil {
+		t.Fatalf("optional current measurements were retained: %#v", status)
+	}
+}
+
+func TestReadCurrentRejectsHumidityOutsideFractionRange(t *testing.T) {
+	for _, humidity := range []string{"-0.01", "1.01"} {
+		t.Run(humidity, func(t *testing.T) {
+			client, err := New(weatherConfig(), &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return response(http.StatusOK, `{"condition":{"text":"阴","code":"104"},"temperature":{"value":28},"humidity":`+humidity+`}`), nil
+			})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			status := model.WeatherStatus{HumidityPercent: float64TestPointer(80)}
+			if err := client.readCurrent(context.Background(), &status); err != nil {
+				t.Fatalf("readCurrent() error = %v", err)
+			}
+			if status.HumidityPercent != nil {
+				t.Fatalf("HumidityPercent = %v, want nil for source humidity %s", *status.HumidityPercent, humidity)
+			}
+		})
+	}
+}
+
+func float64TestPointer(value float64) *float64 { return &value }
+func intTestPointer(value int) *int             { return &value }
 
 func TestSummarizeRainKeepsTraceRainAsLocalPossibility(t *testing.T) {
 	points := []minutelyPrecipitation{
