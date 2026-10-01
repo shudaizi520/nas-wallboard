@@ -98,5 +98,53 @@ for (const width of [300, 360]) {
     expect(future.scrollWidth).toBeLessThanOrEqual(future.width + 1);
     expect(future.detailScrollHeight).toBeLessThanOrEqual(future.detailHeight + 1);
     expect(future.nextTop).toBeGreaterThanOrEqual(future.bottom - 1);
+
+    dashboard = {...short, activities: [
+      {...short.activities[0], detail: Array.from({length: 60}, (_, index) => `暴雨橙色预警${index + 1}`).join('\n')},
+      ...short.activities.slice(1),
+    ]};
+    await page.evaluate(async (value) => {
+      const {renderDashboard} = await import('/view.js');
+      renderDashboard(document, value);
+    }, dashboard);
+    await expect.poll(() => page.evaluate(() => window.hostSizes.findLast((message) => message.ready).height)).toBe(1000);
+    // Follow both the host's safe size cap and a smaller monitor's work-area clamp.
+    for (const height of [1000, 450]) {
+      await page.setViewportSize({width, height});
+      await page.evaluate(() => {
+        document.documentElement.classList.add('desktop-movable');
+        window.scrollTo(0, 0);
+      });
+      await page.mouse.move(width / 2, 50);
+      await page.mouse.wheel(0, 10000);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      const reached = await page.locator('[data-list="activities"]').evaluate((list) => {
+        const detail = list.querySelector('[data-key="weather"] [data-field="detail"]');
+        const range = document.createRange();
+        range.setStart(detail.firstChild, detail.textContent.lastIndexOf('\n') + 1);
+        range.setEnd(detail.firstChild, detail.textContent.length);
+        return {lastWarningTop: range.getBoundingClientRect().top, lastWarningBottom: range.getBoundingClientRect().bottom,
+          lastRowBottom: list.lastElementChild.getBoundingClientRect().bottom, viewport: window.innerHeight};
+      });
+      expect(reached.lastWarningTop).toBeGreaterThanOrEqual(0);
+      expect(reached.lastWarningBottom).toBeLessThanOrEqual(reached.viewport);
+      expect(reached.lastRowBottom).toBeLessThanOrEqual(reached.viewport);
+    }
+    dashboard = short;
+    await page.evaluate(async (value) => {
+      const {renderDashboard} = await import('/view.js');
+      renderDashboard(document, value);
+    }, dashboard);
+    await expect.poll(() => page.evaluate(() => window.hostSizes.findLast((message) => message.ready).height)).toBe(shortHeight);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+
+    await page.setViewportSize({width: 600, height: 200});
+    await page.goto('http://wallboard.test/');
+    await expect(page.locator('[data-key="weather"]')).toBeVisible();
+    const panel = await page.locator('.glass-panel').boundingBox();
+    await page.mouse.move(panel.x + panel.width / 2, 80);
+    await page.mouse.wheel(0, 10000);
+    await expect.poll(() => page.locator('.wallpaper').evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    expect((await page.locator('[data-key="alert:a1"]').boundingBox()).y).toBeLessThan(200);
   });
 }
