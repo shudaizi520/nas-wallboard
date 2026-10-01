@@ -734,10 +734,12 @@ func compactWeatherWarningTitle(value string) (string, bool) {
 }
 
 func weatherWarningSummary(warnings []model.WeatherWarning) (string, string) {
-	bestSummary := ""
-	bestTone := "active"
-	bestRank := -1
-	activeCount := 0
+	type displayedWarning struct {
+		summary string
+		rank    int
+		tone    string
+	}
+	active := make([]displayedWarning, 0, len(warnings))
 	releasedSummary := ""
 	for _, warning := range warnings {
 		summary, released := compactWeatherWarningTitle(warning.Title)
@@ -750,19 +752,15 @@ func weatherWarningSummary(warnings []model.WeatherWarning) (string, string) {
 			}
 			continue
 		}
-		activeCount++
-		rank := weatherWarningRank(warning)
-		if rank > bestRank {
-			bestRank = rank
-			bestSummary = summary
-			bestTone = weatherWarningTone(warning)
-		}
+		active = append(active, displayedWarning{summary, weatherWarningRank(warning), weatherWarningTone(warning)})
 	}
-	if bestSummary != "" {
-		if activeCount > 1 {
-			bestSummary += " +" + strconv.Itoa(activeCount-1)
+	if len(active) > 0 {
+		sort.SliceStable(active, func(i, j int) bool { return active[i].rank > active[j].rank })
+		summaries := make([]string, 0, len(active))
+		for _, warning := range active {
+			summaries = append(summaries, warning.summary)
 		}
-		return bestSummary, bestTone
+		return strings.Join(summaries, "\n"), active[0].tone
 	}
 	return releasedSummary, "active"
 }

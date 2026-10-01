@@ -98,7 +98,7 @@ test('dashboard values share one left-aligned column', async ({page}) => {
   expect(compactRows.fanCenterDelta).toBeLessThanOrEqual(1);
 });
 
-test('current weather detail uses one line when short and at most two when long', async ({page}) => {
+test('current weather detail grows to fit all lines and shrinks back when short', async ({page}) => {
   await page.setViewportSize({width: 600, height: 700});
   await page.setContent(`
     <style>${css}</style>
@@ -143,6 +143,9 @@ test('current weather detail uses one line when short and at most two when long'
   expect(short.height).toBeLessThanOrEqual(short.lineHeight + 1);
   expect(hazard.height).toBeLessThanOrEqual(hazard.lineHeight + 1);
   expect(long.height, JSON.stringify({short, long, veryLong})).toBeGreaterThan(short.height + 1);
-  expect(veryLong.height).toBeLessThanOrEqual(short.lineHeight * 2 + 1);
-  expect(veryLong.overflow).toBe('hidden');
+  expect(veryLong.height).toBeGreaterThan(short.lineHeight * 2 + 1);
+  expect(veryLong.height).toBeGreaterThanOrEqual(veryLong.scrollHeight - 1);
+  expect(veryLong.scrollWidth).toBeLessThanOrEqual(veryLong.width + 1);
+  await detail.evaluate((node) => { node.textContent = '体感31° · 湿度64%'; });
+  expect((await measure()).height).toBeCloseTo(short.height, 0);
 });

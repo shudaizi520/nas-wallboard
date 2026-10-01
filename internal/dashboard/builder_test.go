@@ -227,7 +227,7 @@ func TestBuilderHighlightsSMARTFailureAndWeatherWarning(t *testing.T) {
 	}
 }
 
-func TestWeatherWarningSummaryKeepsTheRowCompact(t *testing.T) {
+func TestWeatherWarningSummaryListsAllActiveWarningsBySeverity(t *testing.T) {
 	tests := []struct {
 		name     string
 		warnings []model.WeatherWarning
@@ -241,12 +241,12 @@ func TestWeatherWarningSummaryKeepsTheRowCompact(t *testing.T) {
 			want: Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "高温预警已解除"},
 		},
 		{
-			name: "highest severity warning wins and reports the remainder",
+			name: "highest severity comes first without hiding the remainder",
 			warnings: []model.WeatherWarning{
 				{Title: "深圳市气象台发布雷电蓝色预警", Severity: "minor", Color: "blue"},
 				{Title: "深圳市气象台发布暴雨橙色预警", Severity: "severe", Color: "orange"},
 			},
-			want: Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "29° · 多云", Detail: "暴雨橙色预警 +1"},
+			want: Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "29° · 多云", Detail: "暴雨橙色预警\n雷电蓝色预警"},
 		},
 		{
 			name: "red warning takes priority over orange warning",
@@ -254,7 +254,16 @@ func TestWeatherWarningSummaryKeepsTheRowCompact(t *testing.T) {
 				{Title: "深圳市气象台发布暴雨橙色预警", Severity: "severe", Color: "orange"},
 				{Title: "深圳市气象台发布台风红色预警", Severity: "severe", Color: "red"},
 			},
-			want: Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "29° · 多云", Detail: "台风红色预警 +1"},
+			want: Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "29° · 多云", Detail: "台风红色预警\n暴雨橙色预警"},
+		},
+		{
+			name: "three warnings from screenshot remain complete and equally ranked items keep order",
+			warnings: []model.WeatherWarning{
+				{Title: "深圳市气象台发布雷雨大风黄色预警", Severity: "moderate", Color: "yellow"},
+				{Title: "深圳市气象台发布暴雨橙色预警", Severity: "severe", Color: "orange"},
+				{Title: "深圳市气象台发布雷电黄色预警", Severity: "moderate", Color: "yellow"},
+			},
+			want: Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "29° · 多云", Detail: "暴雨橙色预警\n雷雨大风黄色预警\n雷电黄色预警"},
 		},
 	}
 	for _, tt := range tests {
