@@ -131,7 +131,7 @@ func TestBuilderShowsNetworkDiskHealthAndWeather(t *testing.T) {
 	if !equalMetrics(view.Metrics, wantMetrics) {
 		t.Fatalf("metrics = %#v, want %#v", view.Metrics, wantMetrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 多云", Detail: "体感35° · 湿度64%"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", ValueTone: "neutral", Value: "29° · 多云", Detail: "体感35° · 湿度64%"}
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
 	}
@@ -143,7 +143,7 @@ func TestWeatherActivityShowsRainInsteadOfComfortWhenRainIsApproaching(t *testin
 		WindScale: intPointer(7), UVIndex: float64Pointer(10),
 		Condition: "多云", ConditionCode: "101", RainSummary: "约半小时后可能有雨",
 	}})
-	want := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "warn", Value: "29° · 多云", Detail: "约半小时后可能有雨 · 强风7级 · 紫外线10"}
+	want := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "warn", ValueTone: "neutral", Value: "29° · 多云", Detail: "约半小时后可能有雨 · 强风7级 · 紫外线10"}
 	if !ok || got != want {
 		t.Fatalf("weather activity = %#v, %v; want %#v, true", got, ok, want)
 	}
@@ -221,7 +221,8 @@ func TestBuilderHighlightsSMARTFailureAndWeatherWarning(t *testing.T) {
 	if len(view.Metrics) != 1 || view.Metrics[0] != (Metric{ID: "disk_temperature", Icon: "disk", Value: "42° · SMART", Tone: "bad"}) {
 		t.Fatalf("metrics = %#v", view.Metrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", Value: "31° · 雷阵雨", Detail: "高温黄色预警 · 强风7级 · 紫外线10"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", ValueTone: "neutral", Value: "31° · 雷阵雨", Detail: "高温黄色预警 · 强风7级 · 紫外线10"}
+	view.Activities[0].DetailParts = nil // Independent color contract is covered by weather_colors_test.
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
 	}
@@ -271,6 +272,8 @@ func TestWeatherWarningSummaryListsAllActiveWarningsBySeverity(t *testing.T) {
 			got, ok := weatherActivity(model.Module[model.WeatherStatus]{Data: model.WeatherStatus{
 				Enabled: true, Name: "平湖", Temperature: 29, Condition: "多云", ConditionCode: "101", RainSummary: "未来两小时无降水", Warnings: tt.warnings,
 			}})
+			got.ValueTone = ""
+			got.DetailParts = nil
 			if !ok || got != tt.want {
 				t.Fatalf("weather activity = %#v, %v; want %#v, true", got, ok, tt.want)
 			}
@@ -289,7 +292,7 @@ func TestWeatherActivitiesAppendTwoUnlabelledForecastRows(t *testing.T) {
 		},
 	}})
 	want := []Activity{
-		{ID: "weather", Icon: "weather-cloudy", Tone: "active", Value: "29° · 少云", Detail: "未来2小时无明显降雨"},
+		{ID: "weather", Icon: "weather-cloudy", Tone: "active", ValueTone: "neutral", Value: "29° · 少云", Detail: "未来2小时无明显降雨"},
 		{ID: "weather:forecast:0", Icon: "weather-cloudy", Tone: "neutral", Value: "多云", Detail: "26°–33° · 雨35%"},
 		{ID: "weather:forecast:1", Icon: "weather-rain", Tone: "neutral", Value: "阵雨", Detail: "25°–31° · 雨80%"},
 	}

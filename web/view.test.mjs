@@ -4,6 +4,16 @@ import test from 'node:test';
 
 import {activityVariant, normalizeDashboard, reconcile, renderFetchError} from './view.js';
 
+test('weather warning parts require exact text and allowlisted colors', () => {
+  const activity = {id: 'weather', value: '27° 多云', value_tone: 'neutral', detail: '<img>暴雨预警', detail_parts: [{text: '<img>暴雨预警', color: 'url(secret)'}]};
+  const normalized = normalizeDashboard({activities: [activity]}).activities[0];
+  assert.equal(normalized.valueTone, 'neutral');
+  assert.deepEqual(normalized.detailParts, [{text: '<img>暴雨预警', color: ''}]);
+  const mismatch = normalizeDashboard({activities: [{...activity, detail: '预警更新失败'}]}).activities[0];
+  assert.equal(mismatch.detail, '预警更新失败');
+  assert.equal(mismatch.detailParts, undefined);
+});
+
 function fakeContainer(keys) {
   const container = {
     children: [],
