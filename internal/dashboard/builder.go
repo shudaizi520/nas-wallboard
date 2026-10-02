@@ -570,7 +570,7 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	if currentUnavailable || invalidNumber(weather.Temperature) || strings.TrimSpace(weather.Condition) == "" {
 		missing := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用", Detail: "天气暂不可用"}
 		if sources := weather.Components; sources != nil && (weatherComponentAvailable(sources.Alerts) || lastKnownWarning) {
-			if summary, warningTone := weatherWarningSummary(weather.Warnings); summary != "" {
+			if summary, warningTone, parts := weatherWarningSummary(weather.Warnings); summary != "" {
 				if lastKnownWarning {
 					summary = "上次预警：" + summary
 				}
@@ -579,6 +579,7 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 					missing.Detail += " · 预警更新失败"
 				}
 				missing.Tone = warningTone
+				missing.DetailParts = decorateWeatherWarningParts(missing.Detail, parts)
 			}
 		}
 		return missing, true
@@ -587,6 +588,7 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	detail := compactRainSummary(weather.RainSummary)
 	dry := detail == "未来2小时无明显降雨" || detail == "暂未见明显降雨"
 	tone := "active"
+	var warningParts *DetailPartList
 	if dry && weather.FeelsLike != nil && weather.HumidityPercent != nil {
 		detail = "体感" + weatherTemperature(*weather.FeelsLike, weather.Units) + " · 湿度" + compactNumber(math.Round(*weather.HumidityPercent)) + "%"
 	}
@@ -597,12 +599,13 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 		}
 	}
 	if len(weather.Warnings) > 0 {
-		if summary, warningTone := weatherWarningSummary(weather.Warnings); summary != "" {
+		if summary, warningTone, parts := weatherWarningSummary(weather.Warnings); summary != "" {
 			detail = summary
 			if lastKnownWarning {
 				detail = "上次预警：" + detail
 			}
 			tone = warningTone
+			warningParts = parts
 		}
 	}
 	if !dry {
@@ -624,7 +627,11 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 			tone = "warn"
 		}
 	}
-	return Activity{ID: "weather", Icon: weatherIcon(weather.ConditionCode), Tone: tone, Value: value, Detail: detail}, true
+	activity := Activity{ID: "weather", Icon: weatherIcon(weather.ConditionCode), Tone: tone, Value: value, Detail: detail, DetailParts: decorateWeatherWarningParts(detail, warningParts)}
+	if warningParts != nil {
+		activity.ValueTone = "neutral"
+	}
+	return activity, true
 }
 
 func weatherComponentAvailable(source model.WeatherComponent) bool {
@@ -733,11 +740,12 @@ func compactWeatherWarningTitle(value string) (string, bool) {
 	return title, false
 }
 
-func weatherWarningSummary(warnings []model.WeatherWarning) (string, string) {
+func weatherWarningSummary(warnings []model.WeatherWarning) (string, string, *DetailPartList) {
 	type displayedWarning struct {
 		summary string
 		rank    int
 		tone    string
+		color   string
 	}
 	active := make([]displayedWarning, 0, len(warnings))
 	releasedSummary := ""
@@ -752,17 +760,66 @@ func weatherWarningSummary(warnings []model.WeatherWarning) (string, string) {
 			}
 			continue
 		}
-		active = append(active, displayedWarning{summary, weatherWarningRank(warning), weatherWarningTone(warning)})
+		active = append(active, displayedWarning{summary, weatherWarningRank(warning), weatherWarningTone(warning), weatherWarningColor(warning)})
 	}
 	if len(active) > 0 {
 		sort.SliceStable(active, func(i, j int) bool { return active[i].rank > active[j].rank })
 		summaries := make([]string, 0, len(active))
-		for _, warning := range active {
+		parts := DetailPartList{}
+		for index, warning := range active {
+			if index > 0 {
+				parts = append(parts, DetailPart{Text: "\n"})
+			}
 			summaries = append(summaries, warning.summary)
+			parts = append(parts, DetailPart{Text: warning.summary, Color: warning.color})
 		}
-		return strings.Join(summaries, "\n"), active[0].tone
+		return strings.Join(summaries, "\n"), active[0].tone, &parts
 	}
-	return releasedSummary, "active"
+	return releasedSummary, "active", nil
+}
+
+// Keep the legacy plain detail intact, including stale notices and hazard suffixes.
+func decorateWeatherWarningParts(detail string, warnings *DetailPartList) *DetailPartList {
+	if warnings == nil {
+		return nil
+	}
+	var summary strings.Builder
+	for _, part := range *warnings {
+		summary.WriteString(part.Text)
+	}
+	start := strings.Index(detail, summary.String())
+	if start < 0 {
+		return nil
+	}
+	parts := make(DetailPartList, 0, len(*warnings)+2)
+	if start > 0 {
+		parts = append(parts, DetailPart{Text: detail[:start]})
+	}
+	parts = append(parts, (*warnings)...)
+	if end := start + summary.Len(); end < len(detail) {
+		parts = append(parts, DetailPart{Text: detail[end:]})
+	}
+	return &parts
+}
+
+func weatherWarningColor(warning model.WeatherWarning) string {
+	color := strings.ToLower(strings.TrimSpace(warning.Color))
+	switch color {
+	case "red", "orange", "yellow", "blue", "purple", "black":
+		return color
+	}
+	// Missing/unknown colors retain a severity-based emphasis without accepting CSS.
+	switch strings.ToLower(strings.TrimSpace(warning.Severity)) {
+	case "extreme":
+		return "red"
+	case "severe":
+		return "orange"
+	case "moderate":
+		return "yellow"
+	case "minor":
+		return "blue"
+	}
+	return ""
 }
 
 func weatherWarningRank(warning model.WeatherWarning) int {

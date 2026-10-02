@@ -221,7 +221,8 @@ func TestBuilderHighlightsSMARTFailureAndWeatherWarning(t *testing.T) {
 	if len(view.Metrics) != 1 || view.Metrics[0] != (Metric{ID: "disk_temperature", Icon: "disk", Value: "42° · SMART", Tone: "bad"}) {
 		t.Fatalf("metrics = %#v", view.Metrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", Value: "31° · 雷阵雨", Detail: "高温黄色预警 · 强风7级 · 紫外线10"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", ValueTone: "neutral", Value: "31° · 雷阵雨", Detail: "高温黄色预警 · 强风7级 · 紫外线10"}
+	view.Activities[0].DetailParts = nil // Independent color contract is covered by weather_colors_test.
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
 	}
@@ -271,6 +272,10 @@ func TestWeatherWarningSummaryListsAllActiveWarningsBySeverity(t *testing.T) {
 			got, ok := weatherActivity(model.Module[model.WeatherStatus]{Data: model.WeatherStatus{
 				Enabled: true, Name: "平湖", Temperature: 29, Condition: "多云", ConditionCode: "101", RainSummary: "未来两小时无降水", Warnings: tt.warnings,
 			}})
+			if got.DetailParts != nil {
+				got.ValueTone = ""
+				got.DetailParts = nil
+			}
 			if !ok || got != tt.want {
 				t.Fatalf("weather activity = %#v, %v; want %#v, true", got, ok, tt.want)
 			}

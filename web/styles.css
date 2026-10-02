@@ -547,6 +547,14 @@ body {
 
 .activity-row--weather .activity-signal { display: none; }
 
+.activity-row.activity-row--weather .activity-line span[data-tone="neutral"] { color: var(--panel-copy); }
+.activity-row--weather [data-warning-color="red"] { color: var(--bad); }
+.activity-row--weather [data-warning-color="orange"] { color: #ffad55; }
+.activity-row--weather [data-warning-color="yellow"] { color: #f5d35d; }
+.activity-row--weather [data-warning-color="blue"] { color: #83bbff; }
+.activity-row--weather [data-warning-color="purple"],
+.activity-row--weather [data-warning-color="black"] { color: #c6a5e7; }
+
 .activity-row.activity-row--forecast {
   grid-template-columns: 1.5rem calc(var(--value-column-start) - 2.5rem) minmax(0, 1fr);
   min-height: 1.6rem;

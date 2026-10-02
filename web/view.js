@@ -1,5 +1,7 @@
 const KNOWN_ICONS = new Set(['cpu', 'disk', 'network', 'weather-sunny', 'weather-cloudy', 'weather-rain', 'weather-storm', 'weather-snow', 'weather-fog', 'fan', 'alert', 'app', 'updates', 'download', 'play', 'uptime']);
 const KNOWN_TONES = new Set(['neutral', 'active', 'warn', 'bad', 'good']);
+const WARNING_COLORS = new Set(['red', 'orange', 'yellow', 'blue', 'purple', 'black']);
+const detailRenderKeys = new WeakMap();
 const METRIC_LABELS = new Map([
   ['cpu', '处理器'],
   ['cpu_temperature', '处理器温度'],
@@ -57,6 +59,11 @@ export function normalizeDashboard(raw = {}) {
       title: text(activity?.title),
       value: text(activity?.value),
       detail: download ? '' : text(activity?.detail),
+      ...(KNOWN_TONES.has(activity?.value_tone) ? {valueTone: activity.value_tone} : {}),
+      ...(id === 'weather' && Array.isArray(activity?.detail_parts) && activity.detail_parts.length > 0
+        && activity.detail_parts.every((part) => typeof part?.text === 'string')
+        && activity.detail_parts.map((part) => part.text).join('') === text(activity?.detail)
+        ? {detailParts: activity.detail_parts.map((part) => ({text: part.text, color: WARNING_COLORS.has(part.color) ? part.color : ''}))} : {}),
       progress: download && Array.isArray(activity?.progress)
         ? activity.progress.filter(Number.isFinite).map((value) => Math.max(0, Math.min(100, Math.round(value))))
         : [],
@@ -81,6 +88,25 @@ function setText(root, selector, value) {
 
 function setTone(node, value) {
   if (node) node.dataset.tone = value;
+}
+
+function setActivityDetail(node, activity) {
+  if (!node) return;
+  const key = JSON.stringify([activity.detail, activity.detailParts]);
+  if (detailRenderKeys.get(node) === key) return;
+  if (activity.detailParts) {
+    const fragment = node.ownerDocument.createDocumentFragment();
+    for (const part of activity.detailParts) {
+      const span = node.ownerDocument.createElement('span');
+      span.textContent = part.text;
+      if (part.color) span.dataset.warningColor = part.color;
+      fragment.append(span);
+    }
+    node.replaceChildren(fragment);
+  } else {
+    node.textContent = activity.detail;
+  }
+  detailRenderKeys.set(node, key);
 }
 
 export function reconcile(container, items, create, update) {
@@ -182,9 +208,13 @@ export function renderDashboard(root, raw) {
     node.querySelector('[data-field="icon"]')?.setAttribute('href', `#icon-${activity.icon}`);
     setText(node, '[data-field="title"]', activity.title);
     setText(node, '[data-field="value"]', variant === 'weather' ? activity.value.replace(' · ', ' ') : activity.value);
-    setText(node, '[data-field="detail"]', activity.detail);
+    setActivityDetail(node.querySelector('[data-field="detail"]'), activity);
     const value = node.querySelector('[data-field="value"]');
     const detail = node.querySelector('[data-field="detail"]');
+    if (value) {
+      if (activity.valueTone) value.dataset.tone = activity.valueTone;
+      else delete value.dataset.tone;
+    }
     if (value) value.hidden = activity.value === '';
     if (detail) detail.hidden = activity.detail === '';
     const progressList = node.querySelector('[data-list="progress"]');
