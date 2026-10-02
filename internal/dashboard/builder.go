@@ -627,10 +627,7 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 			tone = "warn"
 		}
 	}
-	activity := Activity{ID: "weather", Icon: weatherIcon(weather.ConditionCode), Tone: tone, Value: value, Detail: detail, DetailParts: decorateWeatherWarningParts(detail, warningParts)}
-	if warningParts != nil {
-		activity.ValueTone = "neutral"
-	}
+	activity := Activity{ID: "weather", Icon: weatherIcon(weather.ConditionCode), Tone: tone, ValueTone: "neutral", Value: value, Detail: detail, DetailParts: decorateWeatherWarningParts(detail, warningParts)}
 	return activity, true
 }
 

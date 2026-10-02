@@ -42,6 +42,20 @@ func TestWeatherWarningColorsAreIndependentOfCurrentValue(t *testing.T) {
 	}
 }
 
+func TestValidCurrentWeatherWithoutOfficialWarningsKeepsNeutralValue(t *testing.T) {
+	for _, wind := range []*int{nil, intPointer(7)} {
+		got, _ := weatherActivity(model.Module[model.WeatherStatus]{Data: model.WeatherStatus{Enabled: true, Temperature: 27, Condition: "多云", RainSummary: "未来2小时无明显降雨", WindScale: wind}})
+		encoded, _ := json.Marshal(got)
+		var payload struct {
+			ValueTone string `json:"value_tone"`
+		}
+		json.Unmarshal(encoded, &payload)
+		if payload.ValueTone != "neutral" {
+			t.Fatalf("valid current value tinted by non-temperature hint: %s", encoded)
+		}
+	}
+}
+
 func TestWeatherWarningPartsPreserveFailureNoticesAndOfficialColors(t *testing.T) {
 	stamp := time.Now()
 	for _, currentFails := range []bool{false, true} {
@@ -68,6 +82,9 @@ func TestWeatherWarningPartsPreserveFailureNoticesAndOfficialColors(t *testing.T
 		if currentFails && (got.Value != "不可用" || got.ValueTone != "") {
 			t.Fatalf("outage hidden: %#v", got)
 		}
+		if !currentFails && got.ValueTone != "neutral" {
+			t.Fatalf("partial notices tinted valid current value: %#v", got)
+		}
 	}
 	for _, tc := range []struct{ color, severity, want string }{
 		{" RED ", "", "red"}, {"orange", "extreme", "orange"}, {"yellow", "severe", "yellow"}, {"blue", "", "blue"}, {"purple", "", "purple"}, {"black", "", "black"},
@@ -79,7 +96,7 @@ func TestWeatherWarningPartsPreserveFailureNoticesAndOfficialColors(t *testing.T
 		}
 	}
 	got, _ := weatherActivity(model.Module[model.WeatherStatus]{Data: model.WeatherStatus{Enabled: true, Temperature: 27, Condition: "多云", Warnings: []model.WeatherWarning{{Title: "解除暴雨橙色预警", Color: "orange"}}}})
-	if got.DetailParts != nil || got.ValueTone != "" {
+	if got.DetailParts != nil || got.ValueTone != "neutral" {
 		t.Fatalf("released warning still colored: %#v", got)
 	}
 }
