@@ -46,12 +46,21 @@ type SystemStatus struct {
 }
 
 type RealtimeStatus struct {
-	CPUPercent            float64 `json:"cpu_percent"`
-	CPUTemperatureCelsius float64 `json:"cpu_temperature_celsius"`
-	MemoryUsedBytes       uint64  `json:"memory_used_bytes"`
-	MemoryTotalBytes      uint64  `json:"memory_total_bytes"`
-	NetworkRxBps          float64 `json:"network_rx_bps"`
-	NetworkTxBps          float64 `json:"network_tx_bps"`
+	CPUPercent            float64                  `json:"cpu_percent"`
+	CPUTemperatureCelsius float64                  `json:"cpu_temperature_celsius"`
+	MemoryUsedBytes       uint64                   `json:"memory_used_bytes"`
+	MemoryTotalBytes      uint64                   `json:"memory_total_bytes"`
+	NetworkRxBps          float64                  `json:"network_rx_bps"`
+	NetworkTxBps          float64                  `json:"network_tx_bps"`
+	NetworkInterface      string                   `json:"network_interface,omitempty"`
+	NetworkInterfaces     []NetworkInterfaceStatus `json:"network_interfaces,omitempty"`
+}
+
+type NetworkInterfaceStatus struct {
+	Identifier string  `json:"identifier"`
+	RxBps      float64 `json:"rx_bps"`
+	TxBps      float64 `json:"tx_bps"`
+	Available  bool    `json:"available"`
 }
 
 type PoolStatus struct {

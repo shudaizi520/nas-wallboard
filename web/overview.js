@@ -1,4 +1,5 @@
 import {createSettingsSection, setInlineStatus} from './manage-ui.js';
+import {clientVersionFromSearch, clientVersionStatus, updateMessage} from './versions.js';
 
 const collectionNames = {truenas:'TrueNAS',plex:'Plex',jellyfin:'Jellyfin',qbittorrent:'qBittorrent',home_assistant:'Home Assistant',qweather:'和风天气',scrutiny:'Scrutiny',uptime_kuma:'Uptime Kuma'};
 export function collectionRows(collectors = []) {
@@ -31,7 +32,7 @@ export function overviewSummary(data = {}) {
   ];
 }
 
-export function overviewRows(data = {}) {
+export function overviewRows(data = {}, installedClient = null) {
   const nas = data.nas ?? {};
   const collectors = data.integrations ?? [];
   const healthy = collectors.filter((item) => item.running && item.healthy).length;
@@ -39,7 +40,7 @@ export function overviewRows(data = {}) {
   const firstFailure = collectors.find((item) => !(item.running && item.healthy));
   return [
     {
-      id: 'application', title: '应用',
+      id: 'application', title: 'NAS 服务端',
       value: `${data.version || '未知版本'} · ${formatDuration(data.application_uptime_seconds)}`,
       tone: 'neutral', update: true,
     },
@@ -55,7 +56,7 @@ export function overviewRows(data = {}) {
     },
     {
       id: 'desktop-client', title: '桌面客户端',
-      value: 'Windows 小组件', tone: 'neutral',
+      ...clientVersionStatus(data.desktop_client_version, installedClient),
       actions: [
         {label: '安装桌面小组件', href: '/download/nas-wallboard-desktop.zip'},
         {label: '网页预览', href: '/', external: true},
@@ -103,9 +104,9 @@ function statusBlock(documentRef, row) {
   value.textContent = row.value;
   value.dataset.tone = row.tone;
   block.append(value);
-  if (row.tone === 'bad' && row.detail) {
+  if (row.detail) {
     const detail = documentRef.createElement('p');
-    detail.className = 'exception-message';
+    detail.className = row.tone === 'bad' ? 'exception-message' : 'help';
     detail.textContent = row.detail;
     block.append(detail);
   }
@@ -151,6 +152,7 @@ function summaryBlock(documentRef, values) {
 
 export function createOverviewPage(root, api, documentRef = document) {
   const list = root.querySelector('#overview-sections');
+  const installedClient = clientVersionFromSearch(documentRef.defaultView?.location.search);
   const updateControls = () => {
     const group = documentRef.createElement('div');
     group.className = 'overview-update';
@@ -163,7 +165,7 @@ export function createOverviewPage(root, api, documentRef = document) {
       button.disabled = true;
       try {
         const update = await api.updateStatus();
-        setInlineStatus(result, update.error || (update.available ? `发现新版本 ${update.latest}` : '当前已是最新版本'), update.error ? 'bad' : 'good');
+        setInlineStatus(result, updateMessage(update), update.error ? 'bad' : update.disabled || !update.latest ? 'neutral' : update.available ? 'warn' : 'good');
         if (update.url) {
           const anchor = documentRef.createElement('a');
           anchor.href = update.url; anchor.target = '_blank'; anchor.rel = 'noopener'; anchor.textContent = result.textContent;
@@ -178,7 +180,7 @@ export function createOverviewPage(root, api, documentRef = document) {
 
   const render = async () => {
     const data = await api.overview();
-    const sections = overviewRows(data).map((row) => {
+    const sections = overviewRows(data, installedClient).map((row) => {
       let aside;
       if (row.update) aside = updateControls();
       else if (row.actions) aside = actionLinks(documentRef, row.actions);

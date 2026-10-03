@@ -25,7 +25,11 @@ function harness(search = '?desktop=1', withBridge = true) {
     }},
     querySelector: (selector) => selector === '.glass-panel' ? panel : null,
   };
-  const window = {location: {search}};
+  const windowListeners = new Map();
+  const window = {location: {search},
+    addEventListener: (type, listener) => windowListeners.set(type, listener),
+    removeEventListener: (type) => windowListeners.delete(type),
+  };
   const bridgeListeners = new Map();
   if (withBridge) window.chrome = {webview: {
     postMessage: (message) => messages.push(message),
@@ -38,7 +42,7 @@ function harness(search = '?desktop=1', withBridge = true) {
     disconnect() { disconnected = true; }
   }
   return {
-    classes, messages, listeners, bridgeListeners, panel, document, window, ResizeObserver,
+    classes, messages, listeners, bridgeListeners, windowListeners, panel, document, window, ResizeObserver,
     resize: () => observerCallback(),
     disconnected: () => disconnected,
   };
@@ -104,6 +108,32 @@ test('desktop preview is harmless without the WebView2 bridge', () => {
   assert.doesNotThrow(() => startDesktopMode(fake));
   assert.equal(fake.classes.has('desktop-mode'), true);
   assert.deepEqual(fake.messages, []);
+});
+
+test('native recovery receives one render failure without forwarding sensitive error text', () => {
+  const fake = harness();
+  const stop = startDesktopMode(fake);
+  assert.equal(typeof fake.windowListeners.get('error'), 'function');
+  fake.windowListeners.get('error')({message:'a private token must not be posted'});
+  fake.windowListeners.get('unhandledrejection')({reason:'private credentials'});
+  assert.deepEqual(fake.messages.filter((message) => message.type === 'render-failed'), [{type:'render-failed'}]);
+  stop();
+  assert.equal(fake.windowListeners.size, 0);
+});
+
+test('desktop reports server version from the rendered response without issuing another request', () => {
+  const fake = harness();
+  fake.panel.dataset.serverVersion = 'v1.0.10';
+  const stop = startDesktopMode(fake);
+  assert.equal(fake.messages.some((message) => message.type === 'version'), false);
+  fake.panel.dataset.ready = 'true';
+  fake.listeners.get('wallboard:rendered')();
+  fake.resize();
+  assert.deepEqual(fake.messages.filter((message) => message.type === 'version'), [{type:'version',version:'v1.0.10'}]);
+  fake.panel.dataset.serverVersion = '<script>';
+  fake.resize();
+  assert.equal(fake.messages.filter((message) => message.type === 'version').length, 1);
+  stop();
 });
 
 test('desktop bridge contains no duplicate dashboard copy or markup', async () => {

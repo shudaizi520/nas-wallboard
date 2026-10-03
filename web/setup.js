@@ -1,3 +1,5 @@
+import {managementAddress} from './versions.js';
+
 const LAST_STEP = 5;
 
 export function initialSetupState(status = {}) {
@@ -234,7 +236,7 @@ function setupApplication(root, browser) {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'failed');
-      browser.location.assign('/login');
+      browser.location.assign(managementAddress('/login', browser.location.search));
     } catch (error) {
       state = {...state, pending: false, errors: {general: messageForServerError(error.message)}};
       render();
@@ -260,7 +262,7 @@ function setupApplication(root, browser) {
     .then((response) => response.ok ? response.json() : Promise.reject(new Error('status')))
     .then((setupStatus) => {
       if (!setupStatus.setup_required) {
-        browser.location.replace('/manage');
+        browser.location.replace(managementAddress('/manage', browser.location.search));
         return;
       }
       state = initialSetupState(setupStatus);

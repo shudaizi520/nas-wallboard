@@ -7,13 +7,23 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"example.com/nas-wallboard/internal/auth"
+	"example.com/nas-wallboard/internal/desktop"
 )
 
 const sessionCookieName = "wallboard_session"
+
+func clientManagementAddress(request *http.Request, path string) string {
+	version := desktop.NormalizeVersion(request.URL.Query().Get("client_version"))
+	if version == "" {
+		return path
+	}
+	return path + "?client_version=" + url.QueryEscape(version)
+}
 
 func (s *server) managePage(w http.ResponseWriter, request *http.Request) {
 	if request.URL.Path != "/manage" || (request.Method != http.MethodGet && request.Method != http.MethodHead) {
@@ -28,11 +38,11 @@ func (s *server) managePage(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if !s.configState.Snapshot().SetupComplete || !s.auth.Configured() {
-		http.Redirect(w, request, "/setup", http.StatusTemporaryRedirect)
+		http.Redirect(w, request, clientManagementAddress(request, "/setup"), http.StatusTemporaryRedirect)
 		return
 	}
 	if _, ok := s.requestPrincipal(request); !ok {
-		http.Redirect(w, request, "/login", http.StatusTemporaryRedirect)
+		http.Redirect(w, request, clientManagementAddress(request, "/login"), http.StatusTemporaryRedirect)
 		return
 	}
 	s.serveAsset(w, request, "manage.html")
@@ -47,7 +57,7 @@ func (s *server) setupPage(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if s.configState.Snapshot().SetupComplete && s.auth.Configured() {
-		http.Redirect(w, request, "/manage", http.StatusTemporaryRedirect)
+		http.Redirect(w, request, clientManagementAddress(request, "/manage"), http.StatusTemporaryRedirect)
 		return
 	}
 	s.serveAsset(w, request, "setup.html")
@@ -62,11 +72,11 @@ func (s *server) loginPage(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if !s.configState.Snapshot().SetupComplete || !s.auth.Configured() {
-		http.Redirect(w, request, "/setup", http.StatusTemporaryRedirect)
+		http.Redirect(w, request, clientManagementAddress(request, "/setup"), http.StatusTemporaryRedirect)
 		return
 	}
 	if _, ok := s.requestPrincipal(request); ok {
-		http.Redirect(w, request, "/manage", http.StatusTemporaryRedirect)
+		http.Redirect(w, request, clientManagementAddress(request, "/manage"), http.StatusTemporaryRedirect)
 		return
 	}
 	s.serveAsset(w, request, "login.html")

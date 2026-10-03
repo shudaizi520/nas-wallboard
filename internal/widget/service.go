@@ -261,6 +261,9 @@ func (s *Service) update(layout Layout) error {
 			if err := integration.ValidateFields(definition.Fields, configuration); err != nil {
 				return fmt.Errorf("widget %s configuration: %w", item.ID, err)
 			}
+			if definition.ID == "network" && !config.ValidNetworkInterface(stringValue(item.Config["interface"])) {
+				return fmt.Errorf("widget %s configuration: invalid network interface", item.ID)
+			}
 			warning, hasWarning := int64Value(item.Config["warning_percent"])
 			critical, hasCritical := int64Value(item.Config["critical_percent"])
 			if hasWarning && hasCritical {
@@ -352,6 +355,9 @@ func (s *Service) DashboardConfig(base config.DashboardConfig) (config.Dashboard
 		switch definition.Placement {
 		case PlacementMetric:
 			metric := config.MetricConfig{Type: definition.LegacyType}
+			if definition.LegacyType == config.MetricTypeNetwork {
+				metric.Interface = stringValue(item.Config["interface"])
+			}
 			if definition.LegacyType == config.MetricTypeDiskTemperature {
 				metric.Match = config.DiskMatchConfig{
 					Serial: stringValue(item.Config["serial"]),

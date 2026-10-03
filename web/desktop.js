@@ -1,3 +1,5 @@
+import {normalizeReleaseVersion} from './versions.js';
+
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 800;
 const MIN_HEIGHT = 80;
@@ -17,6 +19,13 @@ export function startDesktopMode({window, document, ResizeObserver}) {
   if (!panel) return () => {};
 
   const post = (message) => window.chrome?.webview?.postMessage(message);
+  let reportedVersion = null;
+  let failureReported = false;
+  const renderFailed = () => {
+    if (failureReported) return;
+    failureReported = true;
+    post({type:'render-failed'});
+  };
   const reportSize = () => {
     const bounds = panel.getBoundingClientRect();
     post({
@@ -25,6 +34,11 @@ export function startDesktopMode({window, document, ResizeObserver}) {
       height: clampRounded(bounds.height, MIN_HEIGHT, MAX_HEIGHT),
       ready: panel.dataset?.ready === 'true',
     });
+    const version = normalizeReleaseVersion(panel.dataset?.serverVersion);
+    if (panel.dataset?.ready === 'true' && version && version !== reportedVersion) {
+      reportedVersion = version;
+      post({type:'version', version});
+    }
   };
   const hostMessage = (event) => {
     if (event.data?.type !== 'movable') return;
@@ -35,12 +49,16 @@ export function startDesktopMode({window, document, ResizeObserver}) {
   observer.observe(panel);
   panel.addEventListener('wallboard:rendered', reportSize);
   window.chrome?.webview?.addEventListener?.('message', hostMessage);
+  window.addEventListener?.('error', renderFailed);
+  window.addEventListener?.('unhandledrejection', renderFailed);
   reportSize();
 
   return () => {
     observer.disconnect();
     panel.removeEventListener('wallboard:rendered', reportSize);
     window.chrome?.webview?.removeEventListener?.('message', hostMessage);
+    window.removeEventListener?.('error', renderFailed);
+    window.removeEventListener?.('unhandledrejection', renderFailed);
   };
 }
 

@@ -320,7 +320,11 @@ func servePublic(dataRoot string, startup startupSelection, authManager *auth.Ma
 		}
 		metrics := make([]widget.LegacyItem, 0, len(dashboardConfig.Metrics))
 		for _, metric := range dashboardConfig.Metrics {
-			metrics = append(metrics, widget.LegacyItem{Type: metric.Type})
+			item := widget.LegacyItem{Type: metric.Type}
+			if metric.Type == config.MetricTypeNetwork && metric.Interface != "" {
+				item.Config = map[string]any{"interface": metric.Interface}
+			}
+			metrics = append(metrics, item)
 		}
 		integrationTypes := map[string]string{
 			config.ActivityTypeWeather: "qweather", config.ActivityTypePlex: "plex", config.ActivityTypeJellyfin: "jellyfin",

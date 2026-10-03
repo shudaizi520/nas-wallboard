@@ -221,6 +221,39 @@ export function createPreviewController(iframe, environment = browserPreviewEnvi
   };
 }
 
+export function networkInterfaceOptions(samples, selected = '') {
+  const entries = new Map();
+  for (const sample of samples ?? []) {
+    if (sample.identifier) entries.set(sample.identifier, Boolean(sample.available));
+  }
+  if (selected && !entries.has(selected)) entries.set(selected, false);
+  return [{value: '', label: '自动（同一接口收发总量最高）', available: true},
+    ...[...entries].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([value, available]) => ({value, label: available ? value : `${value}（不可用）`, available}))];
+}
+
+export function networkInterfaceInput(documentRef, field, value, samples, onChange) {
+  const label = documentRef.createElement('label'); label.className = 'widget-field';
+  const title = documentRef.createElement('span'); title.textContent = field.label;
+  const select = documentRef.createElement('select'); select.name = field.key;
+  select.setAttribute('aria-label', field.label);
+  for (const option of [...networkInterfaceOptions(samples, value), {value:'/manual', label:'手动输入接口标识…'}]) {
+    const node = documentRef.createElement('option'); node.value = option.value; node.textContent = option.label; select.append(node);
+  }
+  select.value = value ?? '';
+  const manual = documentRef.createElement('input'); manual.type = 'text'; manual.hidden = true; manual.value = value ?? '';
+  manual.setAttribute('aria-label', '手动接口标识'); manual.placeholder = '例如 eno1、br0、bond0'; manual.maxLength = 64;
+  select.addEventListener('change', () => {
+    manual.hidden = select.value !== '/manual';
+    if (manual.hidden) { manual.value = select.value; onChange(select.value); }
+    else manual.focus?.();
+  });
+  manual.addEventListener('input', () => onChange(manual.value));
+  const help = documentRef.createElement('small'); help.textContent = field.help;
+  label.append(title, select, manual, help);
+  return label;
+}
+
 function fieldInput(documentRef, field, value, onChange) {
   const label = documentRef.createElement('label');
   label.className = 'widget-field';
@@ -261,6 +294,7 @@ export function createLayoutEditor(root, api, options = {}) {
   const preview = createPreviewController(root.querySelector('#layout-preview'), options.previewEnvironment);
   let catalog = [];
   let sources = [];
+  let networkInterfaces = [];
   let saved = {width: 360, widgets: []};
   let current = copy(saved);
   let dragged = '';
@@ -317,7 +351,10 @@ export function createLayoutEditor(root, api, options = {}) {
         sourceLabel.append(sourceTitle, select); controls.append(sourceLabel);
       }
       for (const field of definition.fields ?? []) {
-        controls.append(fieldInput(documentRef, field, item.config?.[field.key], (value) => { current = updateWidget(current, item.id, {config: {[field.key]: value}}); changed(); }));
+        const onChange = (value) => { current = updateWidget(current, item.id, {config: {[field.key]: value}}); changed(); };
+        controls.append(definition.id === 'network' && field.key === 'interface'
+          ? networkInterfaceInput(documentRef, field, item.config?.[field.key], networkInterfaces, onChange)
+          : fieldInput(documentRef, field, item.config?.[field.key], onChange));
       }
       if (controls.childElementCount) row.append(controls);
       row.addEventListener('dragstart', (event) => { if(pending) {event.preventDefault();return;} dragged = item.id; row.classList.add('dragging'); });
@@ -356,7 +393,7 @@ export function createLayoutEditor(root, api, options = {}) {
       if (sequence !== syncSequence) return;
       if (pending) { syncAfterSave = true; return; }
       current = initialized ? mergeLayoutDraft(saved,current,data.layout,data.sources) : copy(data.layout);
-      catalog=data.catalog; sources=data.sources; saved=copy(data.layout); initialized=true;
+      catalog=data.catalog; sources=data.sources; networkInterfaces=data.network_interfaces ?? []; saved=copy(data.layout); initialized=true;
       render(); changed();
       if (!root.hidden) preview.start();
     } catch (error) {
@@ -375,6 +412,7 @@ export function createLayoutEditor(root, api, options = {}) {
     try {
       const data = await api.saveLayout(copy(current));
       catalog = data.catalog; sources = data.sources; saved = copy(data.layout); current = copy(saved);
+      networkInterfaces = data.network_interfaces ?? [];
       setStatus('已保存', 'success'); render(); preview.refresh();
     } catch (error) { setStatus(error.code === 'layout_conflict' ? '布局已在其他页面更新，草稿已保留；请重新打开桌面内容同步后保存' : error.message === 'invalid_layout' ? '布局设置无效，请检查数据来源' : '保存失败，草稿已保留，请稍后重试', 'error'); }
     finally {

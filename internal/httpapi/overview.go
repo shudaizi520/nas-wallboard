@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 
+	"example.com/nas-wallboard/internal/desktop"
 	"example.com/nas-wallboard/internal/integration"
 	"example.com/nas-wallboard/internal/persist"
 )
@@ -42,6 +43,7 @@ func (s *server) manageOverview(w http.ResponseWriter, request *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":                    s.version,
+		"desktop_client_version":     desktop.PackagedVersion(s.assets),
 		"application_uptime_seconds": int64(uptime.Seconds()),
 		"nas": map[string]any{
 			"version":        runtime.System.Data.Version,

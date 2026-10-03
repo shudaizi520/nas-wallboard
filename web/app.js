@@ -27,7 +27,10 @@ async function fetchDashboard() {
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`dashboard ${response.status}`);
-    return await response.json();
+    const view = await response.json();
+    const panel = root.querySelector('.glass-panel');
+    if (panel) panel.dataset.serverVersion = response.headers.get('X-Wallboard-Version') || '';
+    return view;
   } finally {
     window.clearTimeout(timeout);
   }

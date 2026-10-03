@@ -62,7 +62,7 @@ function loginApplication(root, browser) {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(response.status === 429 ? '尝试次数过多，请稍后再试' : '用户名或密码不正确');
-      browser.location.replace('/manage');
+      browser.location.replace(managementAddress('/manage', browser.location.search));
     } catch (error) {
       state = reduceLogin(state, {type: 'failure', message: error.message});
       status.textContent = state.error;
@@ -73,9 +73,10 @@ function loginApplication(root, browser) {
 
   fetch('/api/auth/session', {cache: 'no-store'})
     .then((response) => {
-      if (response.ok) browser.location.replace('/manage');
+      if (response.ok) browser.location.replace(managementAddress('/manage', browser.location.search));
     })
     .catch(() => {});
 }
 
 if (typeof document !== 'undefined' && typeof window !== 'undefined') loginApplication(document, window);
+import {managementAddress} from './versions.js';

@@ -36,12 +36,6 @@ jobs:
           npm test
           npm run test:e2e
           dotnet test windows/NASWallboard.Desktop.sln -c Release
-      - name: Build Windows client once
-        run: >-
-          dotnet publish windows/NASWallboard.Desktop/NASWallboard.Desktop.csproj
-          -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
-          -o web/downloads
       - name: Reject non-semantic or unsafe release tags before publishing
         run: >-
           go run ./tools/release
@@ -49,6 +43,13 @@ jobs:
           --version "${GITHUB_REF_NAME}"
           --digest "sha256:0000000000000000000000000000000000000000000000000000000000000000"
           --output /tmp/nas-wallboard-release-validation.yaml
+      - name: Build Windows client once
+        run: >-
+          dotnet publish windows/NASWallboard.Desktop/NASWallboard.Desktop.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:WallboardReleaseVersion="${GITHUB_REF_NAME}"
+          -o web/downloads
       - name: Resolve image name
         id: image
         shell: bash

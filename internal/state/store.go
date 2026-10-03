@@ -111,6 +111,7 @@ func (s *Store) SetSystemAt(value model.SystemStatus, err error, readAt time.Tim
 func (s *Store) SetRealtime(value model.RealtimeStatus, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	value.NetworkInterfaces = append([]model.NetworkInterfaceStatus(nil), value.NetworkInterfaces...)
 	setModule(&s.realtime, value, err, s.now())
 }
 
@@ -290,6 +291,7 @@ func (s *Store) Snapshot() model.Snapshot {
 		Memory:             s.memory,
 		Replication:        s.replication,
 	}
+	snapshot.Realtime.Data.NetworkInterfaces = append([]model.NetworkInterfaceStatus(nil), s.realtime.Data.NetworkInterfaces...)
 	snapshot.Pools.Data = append([]model.PoolStatus(nil), s.pools.Data...)
 	snapshot.Disks.Data = append([]model.DiskStatus(nil), s.disks.Data...)
 	snapshot.Apps.Data = append([]model.AppStatus(nil), s.apps.Data...)

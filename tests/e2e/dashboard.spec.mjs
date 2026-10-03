@@ -70,6 +70,44 @@ let managed = {
   ],
 };
 
+test('network settings select collected interfaces and preserve missing selection', async ({page}) => {
+  sessionValid = true;
+  let savedInterface = 'gone0';
+  await page.route('**/api/manage/layout', async route => {
+    if (route.request().method() === 'PUT') savedInterface = route.request().postDataJSON().widgets[0].config.interface;
+    await route.fulfill({json:{
+      catalog:[{id:'network',integration_type:'truenas',placement:'metric',label:'实时网速',visibility:'always',defaults:{},fields:[{key:'interface',kind:'text',label:'NAS 网络接口',help:'NAS 接口流量，不是路由器或手机流量。'}]}],
+      sources:[{id:'truenas-main',type:'truenas',enabled:true}],
+      layout:{revision:'network-test',width:375,widgets:[{id:'network-1',definition_id:'network',integration_id:'truenas-main',enabled:true,order:0,config:{interface:savedInterface}}]},
+      network_interfaces:[{identifier:'eth0',available:true},{identifier:'br0',available:false}],
+    }});
+  });
+  await page.goto(`${baseURL}/manage`,{waitUntil:'networkidle'});
+  await page.getByRole('tab',{name:'桌面'}).click();
+  const choice = page.locator('[data-id="network-1"] select[name="interface"]');
+  await expect(choice).toBeVisible();
+  await expect(choice).toHaveValue('gone0');
+  await expect(choice.locator('option[value="gone0"]')).toContainText('不可用');
+  await expect(page.getByText('NAS 接口流量，不是路由器或手机流量。')).toBeVisible();
+  await choice.selectOption('eth0');
+  await page.locator('#save').click();
+  await expect(choice).toHaveValue('eth0');
+  await expect.poll(() => savedInterface).toBe('eth0');
+  await choice.selectOption('');
+  await page.locator('#save').click();
+  await expect.poll(() => savedInterface).toBe('');
+  await expect(choice).toBeEnabled();
+  await choice.selectOption('/manual');
+  const manual = page.getByRole('textbox',{name:'手动接口标识'});
+  await expect(manual).toBeFocused();
+  await manual.pressSequentially('veth-peer.100:1');
+  await expect(manual).toHaveValue('veth-peer.100:1');
+  await expect(manual).toBeFocused();
+  await page.locator('#save').click();
+  await expect.poll(() => savedInterface).toBe('veth-peer.100:1');
+  await expect(choice).toHaveValue('veth-peer.100:1');
+});
+
 test.beforeAll(async () => {
   server = createServer(async (request, response) => {
     if (request.url.startsWith('/api/setup/status')) {
@@ -136,7 +174,7 @@ test.beforeAll(async () => {
     if (request.url.startsWith('/api/manage/overview')) {
       overviewRequests += 1;
       response.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'});
-      response.end(JSON.stringify({version:'test',application_uptime_seconds:120,nas:{version:'25.10.1',uptime_seconds:90000,connected:true,last_update:'2026-09-28T00:00:00Z'},integrations:[{instance_id:'truenas-main',type:'truenas',running:true,healthy:true,message:'运行中'}],migration:{imported:false,warning_count:0}}));
+      response.end(JSON.stringify({version:'v1.0.10',desktop_client_version:'v1.0.10',application_uptime_seconds:120,nas:{version:'25.10.1',uptime_seconds:90000,connected:true,last_update:'2026-09-28T00:00:00Z'},integrations:[{instance_id:'truenas-main',type:'truenas',running:true,healthy:true,message:'运行中'}],migration:{imported:false,warning_count:0}}));
       return;
     }
     if (request.url.startsWith('/api/manage/update')) {
@@ -212,7 +250,7 @@ test.beforeAll(async () => {
       if (request.method === 'POST' && parts[1] === 'enable') { integrationInstances[0].enabled = true; mockPlexVisible = true; response.writeHead(200, {'content-type':'application/json'}); response.end('{"enabled":true}'); return; }
     }
     if (request.url.startsWith('/api/dashboard')) {
-      response.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store'});
+      response.writeHead(200, {'content-type': 'application/json', 'cache-control': 'no-store', 'X-Wallboard-Version':'v1.0.10'});
       response.end(JSON.stringify({...fixture, width: managedLayout.width, activities: mockPlexVisible ? fixture.activities : fixture.activities.filter((item) => item.id !== 'plex')}));
       return;
     }
@@ -575,6 +613,49 @@ test('management overview and recovery settings are clear without exposing secre
   await page.screenshot({path: testInfo.outputPath('overview-settings.jpg'), type: 'jpeg', quality: 88, fullPage: true});
 });
 
+test('management shows native and download versions separately without guessing browser installation', async ({page}, testInfo) => {
+  sessionValid = true;
+  await page.goto(`${baseURL}/manage`, {waitUntil:'networkidle'});
+  await expect(page.getByRole('heading', {name:'NAS 服务端',exact:true})).toBeVisible();
+  await expect(page.getByText('已安装版本未知 · 可下载 v1.0.10', {exact:true})).toBeVisible();
+  await page.getByRole('button', {name:'检查更新',exact:true}).click();
+  await expect(page.getByText('未启用更新检查，无法确认最新版本', {exact:true})).toBeVisible();
+  await page.goto(`${baseURL}/manage?client_version=v1.0.9`, {waitUntil:'networkidle'});
+  await expect(page.getByText('当前客户端 v1.0.9 · 可下载 v1.0.10', {exact:true})).toBeVisible();
+  await expect(page.getByText(/请退出后重新下载并替换程序/)).toBeVisible();
+  await page.screenshot({path:testInfo.outputPath('client-and-server-versions.jpg'),type:'jpeg',quality:88,fullPage:true});
+  await page.getByRole('button',{name:'退出',exact:true}).click();
+  await expect(page).toHaveURL(/\/login\?client_version=v1\.0\.9$/);
+  await page.locator('#login-username').fill(administratorUsername);
+  await page.locator('#login-password').fill(administratorPassword);
+  await page.getByRole('button',{name:'登录',exact:true}).click();
+  await expect(page.getByText('当前客户端 v1.0.9 · 可下载 v1.0.10',{exact:true})).toBeVisible();
+  await page.goto(`${baseURL}/manage?client_version=${encodeURIComponent('<img src=x onerror=alert(1)>')}`, {waitUntil:'networkidle'});
+  await expect(page.getByText('已安装版本未知 · 可下载 v1.0.10', {exact:true})).toBeVisible();
+  expect(await page.locator('body').textContent()).not.toContain('onerror');
+});
+
+test('native bridge reports rendered server identity and failure with no additional data polling', async ({page}) => {
+  setupRequired = false;
+  let dashboardRequests = 0;
+  await page.route('**/api/dashboard', async (route) => { dashboardRequests++; await route.continue(); });
+  await page.addInitScript(() => {
+    window.__nativeMessages = [];
+    window.chrome ??= {};
+    window.chrome.webview = {postMessage:(message) => window.__nativeMessages.push(message)};
+  });
+  await page.goto(`${baseURL}/?desktop=1&desktop_attempt=1`, {waitUntil:'networkidle'});
+  await expect.poll(() => page.evaluate(() => window.__nativeMessages.find((message) => message.type === 'version'))).toEqual({type:'version',version:'v1.0.10'});
+  await expect.poll(() => page.evaluate(() => window.__nativeMessages.some((message) => message.type === 'resize' && message.ready))).toBe(true);
+  await page.evaluate(() => {
+    window.dispatchEvent(new ErrorEvent('error',{message:'private token must not be posted'}));
+    window.dispatchEvent(new ErrorEvent('error',{message:'another private value'}));
+  });
+  expect(await page.evaluate(() => window.__nativeMessages.filter((message) => message.type === 'render-failed'))).toEqual([{type:'render-failed'}]);
+  expect(await page.evaluate(() => JSON.stringify(window.__nativeMessages))).not.toContain('private');
+  expect(dashboardRequests).toBe(1);
+});
+
 test('management layout stays bounded and aligned on wide screens', async ({page}) => {
   sessionValid = true;
   administratorUsername = 'admin';
@@ -816,11 +897,18 @@ test('legacy migration keeps the existing dashboard visible until an administrat
   setupMigration = false;
 });
 
+test('setup status completed elsewhere preserves the native version on its fallback redirect', async ({page}) => {
+  sessionValid = true;
+  await page.route('**/api/setup/status', route => route.fulfill({json:{setup_required:false}}));
+  await page.goto(`${baseURL}/setup?client_version=v1.0.10`, {waitUntil:'networkidle'});
+  await expect(page).toHaveURL(`${baseURL}/manage?client_version=v1.0.10`);
+});
+
 test('six-step setup completes without retaining submitted secrets', async ({page}, testInfo) => {
   setupRequired = true;
   sessionValid = false;
   lastSetupComplete = null;
-  await page.goto(`${baseURL}/setup`, {waitUntil: 'networkidle'});
+  await page.goto(`${baseURL}/setup?client_version=v1.0.10`, {waitUntil: 'networkidle'});
   await expect(page.locator('.brand img')).toHaveJSProperty('complete', true);
   expect(await page.locator('.brand img').evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
   await expect(page.getByRole('heading', {name: '几分钟完成设置'})).toBeVisible();
@@ -842,7 +930,7 @@ test('six-step setup completes without retaining submitted secrets', async ({pag
   await expect(page.getByRole('heading', {name: '可以开始了'})).toBeVisible();
   await page.screenshot({path: testInfo.outputPath('setup-review.jpg'), type: 'jpeg', quality: 88, fullPage: true});
   await page.getByRole('button', {name: '完成设置'}).click();
-  await page.waitForURL('**/login');
+  await expect(page).toHaveURL(/\/login\?client_version=v1\.0\.10$/);
   expect(lastSetupComplete.api_key).toBe('temporary-api-secret');
   expect(lastSetupComplete.url).toBe('wss://nas.local/api/current');
   expect(lastSetupComplete.administrator_username).toBe('Owner');

@@ -19,3 +19,4 @@ windows/**/obj/
 web/downloads/*.exe
 web/downloads/*.pdb
 web/downloads/*.xml
+web/downloads/desktop-version.txt

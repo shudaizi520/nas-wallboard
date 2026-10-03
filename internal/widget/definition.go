@@ -39,7 +39,9 @@ func BuiltInRegistry() (*Registry, error) {
 			{Key: "name", Kind: integration.FieldText, Label: "设备名称", Help: "可选；例如 sda。"},
 			integerField("size_bytes", "硬盘容量", "可选；同型号硬盘可用容量辅助匹配。", 0, 0),
 		}, AllowMultiple: true, Defaults: map[string]any{}},
-		{ID: "network", LegacyType: "network", IntegrationType: "truenas", Placement: PlacementMetric, Label: "实时网速", Visibility: VisibilityAlways, Defaults: map[string]any{}},
+		{ID: "network", LegacyType: "network", IntegrationType: "truenas", Placement: PlacementMetric, Label: "实时网速", Visibility: VisibilityAlways, Fields: []integration.Field{
+			{Key: "interface", Kind: integration.FieldText, Label: "NAS 网络接口", Help: "显示 NAS 所选接口的接收/发送流量，不是路由器总流量或手机流量。自动模式每次选择收发总量最高的同一接口；固定接口缺失或数据不完整时显示不可用。"},
+		}, Defaults: map[string]any{}},
 		{ID: "pool_capacity", LegacyType: "pool_capacity", IntegrationType: "truenas", Placement: PlacementMetric, Label: "存储池容量", Visibility: VisibilityAlways, Fields: []integration.Field{
 			{Key: "name", Kind: integration.FieldText, Label: "存储池名称", Help: "留空时显示第一个存储池。"},
 			integerField("warning_percent", "提醒阈值", "使用率达到该百分比时显示提醒色。", 1, 99),

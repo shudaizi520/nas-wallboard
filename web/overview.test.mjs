@@ -53,3 +53,13 @@ test('overview poller stops while hidden and resumes with one immediate refresh'
   assert.equal(calls, 3);
   poller.stop();
 });
+
+test('overview separates the installed native client from server and download versions', () => {
+  const rows = overviewRows({version:'v1.0.10',desktop_client_version:'v1.0.10'}, 'v1.0.9');
+  assert.equal(rows[0].title, 'NAS 服务端');
+  assert.equal(rows[3].value, '当前客户端 v1.0.9 · 可下载 v1.0.10');
+  assert.equal(rows[3].tone, 'warn');
+  assert.match(rows[3].detail, /重新下载/);
+  const ordinary = overviewRows({version:'v1.0.10',desktop_client_version:'v1.0.10'});
+  assert.match(ordinary[3].value, /已安装版本未知/);
+});

@@ -21,7 +21,7 @@ windows-test:
 	$(DOTNET) test windows/NASWallboard.Desktop.sln -c Release
 
 desktop-publish:
-	$(DOTNET) publish windows/NASWallboard.Desktop/NASWallboard.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $(DESKTOP_OUTPUT)
+	$(DOTNET) publish windows/NASWallboard.Desktop/NASWallboard.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:WallboardReleaseVersion=$(if $(filter v%,$(VERSION)),$(VERSION),) -o $(DESKTOP_OUTPUT)
 
 vet:
 	$(GO) vet ./...

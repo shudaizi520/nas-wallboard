@@ -101,6 +101,7 @@ type DashboardConfig struct {
 
 type MetricConfig struct {
 	Type            string          `yaml:"type"`
+	Interface       string          `yaml:"interface,omitempty"`
 	Match           DiskMatchConfig `yaml:"match"`
 	Name            string          `yaml:"name,omitempty"`
 	WarningPercent  float64         `yaml:"warning_percent,omitempty"`
@@ -526,6 +527,9 @@ func validateDashboard(dashboard *DashboardConfig) error {
 			return fmt.Errorf("dashboard.metrics type %q is duplicated", metric.Type)
 		}
 		seenMetrics[metric.Type] = struct{}{}
+		if metric.Type == MetricTypeNetwork && !ValidNetworkInterface(metric.Interface) {
+			return fmt.Errorf("dashboard.metrics[%d].interface is invalid", index)
+		}
 		if metric.Type == MetricTypeDiskTemperature && !validDiskMatch(metric.Match) {
 			return fmt.Errorf("dashboard.metrics[%d].match must set serial, model with size_bytes, or name", index)
 		}

@@ -66,6 +66,9 @@ func prepare(cfg config.DashboardConfig) (preparedConfig, error) {
 	}
 
 	for _, metric := range metrics {
+		if metric.Type == config.MetricTypeNetwork && !config.ValidNetworkInterface(metric.Interface) {
+			return preparedConfig{}, fmt.Errorf("dashboard network interface is invalid")
+		}
 		if metric.Type != config.MetricTypeCPU && metric.Type != config.MetricTypeCPUTemperature && metric.Type != config.MetricTypeDiskTemperature && metric.Type != config.MetricTypeNetwork && metric.Type != config.MetricTypePoolCapacity {
 			return preparedConfig{}, fmt.Errorf("dashboard metric %q is not available", metric.Type)
 		}
@@ -123,7 +126,7 @@ func (b *Builder) Build(snapshot model.Snapshot, now time.Time) View {
 			}
 			view.Metrics = append(view.Metrics, diskMetric(snapshot.Disks, health, configured.Match, legacyDiskMode))
 		case config.MetricTypeNetwork:
-			view.Metrics = append(view.Metrics, networkMetric(snapshot.Realtime))
+			view.Metrics = append(view.Metrics, networkMetric(snapshot.Realtime, configured.Interface))
 		case config.MetricTypePoolCapacity:
 			view.Metrics = append(view.Metrics, poolCapacityMetric(snapshot.Pools, configured))
 		}
@@ -311,12 +314,28 @@ func cpuTemperatureMetric(module model.Module[model.RealtimeStatus]) Metric {
 	return metric
 }
 
-func networkMetric(module model.Module[model.RealtimeStatus]) Metric {
+func networkMetric(module model.Module[model.RealtimeStatus], identifier string) Metric {
 	metric := Metric{ID: "network", Icon: "network", Value: dash, Tone: "bad"}
-	if module.Stale || module.Error != "" || invalidNumber(module.Data.NetworkRxBps) || invalidNumber(module.Data.NetworkTxBps) {
+	if module.Stale || module.Error != "" {
 		return metric
 	}
-	metric.Value = "↓ " + compactRate(module.Data.NetworkRxBps) + " ↑ " + compactRate(module.Data.NetworkTxBps)
+	rx, tx := module.Data.NetworkRxBps, module.Data.NetworkTxBps
+	if identifier != "" {
+		found := false
+		for _, sample := range module.Data.NetworkInterfaces {
+			if sample.Identifier == identifier && sample.Available {
+				rx, tx, found = sample.RxBps, sample.TxBps, true
+				break
+			}
+		}
+		if !found {
+			return metric
+		}
+	}
+	if invalidNumber(rx) || invalidNumber(tx) {
+		return metric
+	}
+	metric.Value = "↓ " + compactRate(rx) + " ↑ " + compactRate(tx)
 	metric.Tone = "neutral"
 	return metric
 }

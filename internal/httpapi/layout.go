@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"example.com/nas-wallboard/internal/model"
 	"example.com/nas-wallboard/internal/widget"
 )
 
@@ -67,6 +68,16 @@ func (s *server) manageLayout(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *server) writeLayout(w http.ResponseWriter) {
+	interfaces := []model.NetworkInterfaceStatus{}
+	if s.store != nil {
+		realtime := s.store.Snapshot().Realtime
+		interfaces = append(interfaces, realtime.Data.NetworkInterfaces...)
+		if realtime.Stale || realtime.Error != "" {
+			for index := range interfaces {
+				interfaces[index].Available = false
+			}
+		}
+	}
 	capabilities := map[string]bool{}
 	sources := []map[string]any{}
 	if s.configState != nil {
@@ -76,8 +87,9 @@ func (s *server) writeLayout(w http.ResponseWriter) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"catalog": s.widgets.CatalogForLayout(capabilities),
-		"sources": sources,
-		"layout":  s.widgets.Layout(),
+		"catalog":            s.widgets.CatalogForLayout(capabilities),
+		"sources":            sources,
+		"layout":             s.widgets.Layout(),
+		"network_interfaces": interfaces,
 	})
 }

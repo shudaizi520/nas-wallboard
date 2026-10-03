@@ -240,9 +240,16 @@ func (c *Collectors) CollectRealtime(ctx context.Context) (model.RealtimeStatus,
 	}
 
 	var cpu, cpuTemperature, rxRate, txRate float64
+	networkSamples := make(map[string]model.NetworkInterfaceStatus, len(interfaces))
+	for _, identifier := range interfaces {
+		if identifier != "" && config.ValidNetworkInterface(identifier) {
+			networkSamples[identifier] = model.NetworkInterfaceStatus{Identifier: identifier}
+		}
+	}
+	selectedInterface := ""
 	var available uint64
 	availableFound := false
-	cpuFound, rxFound, txFound := false, false, false
+	cpuFound, networkFound := false, false
 	for _, graph := range raw {
 		switch graph.Name {
 		case "cpu":
@@ -260,17 +267,17 @@ func (c *Collectors) CollectRealtime(ctx context.Context) (model.RealtimeStatus,
 				availableFound = true
 			}
 		case "interface":
-			if value, found := latestMetric(graph, "received"); found {
-				rxFound = true
-				if value > rxRate {
-					rxRate = value
-				}
+			if _, requested := networkSamples[graph.Identifier]; !requested {
+				continue
 			}
-			if value, found := latestMetric(graph, "sent"); found {
-				txFound = true
-				if value > txRate {
-					txRate = value
-				}
+			rx, tx, found := latestNetworkPair(graph)
+			if !found {
+				continue
+			}
+			networkSamples[graph.Identifier] = model.NetworkInterfaceStatus{Identifier: graph.Identifier, RxBps: kilobitsToBytes(rx), TxBps: kilobitsToBytes(tx), Available: true}
+			if !networkFound || rx+tx > rxRate+txRate || (rx+tx == rxRate+txRate && graph.Identifier < selectedInterface) {
+				rxRate, txRate, selectedInterface = rx, tx, graph.Identifier
+				networkFound = true
 			}
 		}
 	}
@@ -279,7 +286,7 @@ func (c *Collectors) CollectRealtime(ctx context.Context) (model.RealtimeStatus,
 		c.memoryError = nil
 	}
 	c.memoryMu.Unlock()
-	if !cpuFound || !rxFound || !txFound || !availableFound || memoryTotal == 0 {
+	if !cpuFound || !networkFound || !availableFound || memoryTotal == 0 {
 		return model.RealtimeStatus{}, errors.New("collect realtime information: required CPU, network or memory sample unavailable")
 	}
 	used := uint64(0)
@@ -287,6 +294,11 @@ func (c *Collectors) CollectRealtime(ctx context.Context) (model.RealtimeStatus,
 		used = memoryTotal - available
 	}
 
+	samples := make([]model.NetworkInterfaceStatus, 0, len(networkSamples))
+	for _, sample := range networkSamples {
+		samples = append(samples, sample)
+	}
+	sort.Slice(samples, func(i, j int) bool { return samples[i].Identifier < samples[j].Identifier })
 	return model.RealtimeStatus{
 		CPUPercent:            cpu,
 		CPUTemperatureCelsius: cpuTemperature,
@@ -294,7 +306,38 @@ func (c *Collectors) CollectRealtime(ctx context.Context) (model.RealtimeStatus,
 		MemoryTotalBytes:      memoryTotal,
 		NetworkRxBps:          kilobitsToBytes(rxRate),
 		NetworkTxBps:          kilobitsToBytes(txRate),
+		NetworkInterface:      selectedInterface,
+		NetworkInterfaces:     samples,
 	}, nil
+}
+
+// Both directions must come from one complete row, never different interfaces
+// or separate partially populated rows in the requested sample window.
+func latestNetworkPair(graph netdataWire) (float64, float64, bool) {
+	rxIndex, txIndex := -1, -1
+	for index, label := range graph.Legend {
+		if label == "received" {
+			rxIndex = index
+		}
+		if label == "sent" {
+			txIndex = index
+		}
+	}
+	if rxIndex < 0 || txIndex < 0 {
+		return 0, 0, false
+	}
+	for index := len(graph.Data) - 1; index >= 0; index-- {
+		row := graph.Data[index]
+		if rxIndex >= len(row) || txIndex >= len(row) || isNullJSON(row[rxIndex]) || isNullJSON(row[txIndex]) {
+			continue
+		}
+		var rx, tx float64
+		if json.Unmarshal(row[rxIndex], &rx) != nil || json.Unmarshal(row[txIndex], &tx) != nil || rx < 0 || tx < 0 || math.IsNaN(rx) || math.IsNaN(tx) || math.IsInf(rx, 0) || math.IsInf(tx, 0) {
+			continue
+		}
+		return rx, tx, true
+	}
+	return 0, 0, false
 }
 
 func (c *Collectors) realtimeMetadata(ctx context.Context) ([]string, uint64, error) {

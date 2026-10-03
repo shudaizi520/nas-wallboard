@@ -15,6 +15,10 @@
     <AssemblyName>NASWallboard.Desktop</AssemblyName>
     <RootNamespace>NASWallboard.Desktop</RootNamespace>
     <ApplicationIcon>Assets\NASWallboard.ico</ApplicationIcon>
+    <Version Condition="'$(WallboardReleaseVersion)' == ''">0.0.0</Version>
+    <Version Condition="'$(WallboardReleaseVersion)' != ''">$([System.String]::Copy('$(WallboardReleaseVersion)').TrimStart('v'))</Version>
+    <InformationalVersion Condition="'$(WallboardReleaseVersion)' == ''">unknown</InformationalVersion>
+    <InformationalVersion Condition="'$(WallboardReleaseVersion)' != ''">$(WallboardReleaseVersion)</InformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\NASWallboard.Desktop.Core\NASWallboard.Desktop.Core.csproj" />
@@ -24,5 +28,8 @@
     <ItemGroup>
       <Reference Remove="$(NugetRoot)\lib_manual\net5.0-windows10.0.17763.0\Microsoft.Web.WebView2.Wpf.dll" />
     </ItemGroup>
+  </Target>
+  <Target Name="WriteDesktopReleaseIdentity" AfterTargets="Publish">
+    <WriteLinesToFile File="$(PublishDir)desktop-version.txt" Lines="$(InformationalVersion)" Overwrite="true" Encoding="UTF-8" />
   </Target>
 </Project>

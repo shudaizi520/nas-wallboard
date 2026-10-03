@@ -3,6 +3,7 @@ import {createIntegrationCenter} from './integrations.js';
 import {createLayoutEditor} from './layout.js';
 import {createOverviewPage} from './overview.js';
 import {createSettingsPage} from './settings.js';
+import {managementAddress} from './versions.js';
 
 const status = document.querySelector('#status');
 const logout = document.querySelector('#logout');
@@ -13,7 +14,7 @@ let editor;
 async function load() {
   const session = await fetch('/api/auth/session', {cache: 'no-store'});
   if (!session.ok) {
-    window.location.replace('/login');
+    window.location.replace(managementAddress('/login', window.location.search));
     throw new Error('unauthorized');
   }
   const sessionData = await session.json();
@@ -53,7 +54,7 @@ logout.addEventListener('click', async () => {
   logout.disabled = true;
   const response = await fetch('/api/auth/logout', {method: 'POST', headers: {'X-CSRF-Token': csrf}});
   if (response.ok) {
-    window.location.replace('/login');
+    window.location.replace(managementAddress('/login', window.location.search));
     return;
   }
   status.textContent = '退出失败';
