@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"example.com/nas-wallboard/internal/retry"
 )
 
 type Job struct {
@@ -13,6 +15,11 @@ type Job struct {
 	MinimumEvery time.Duration
 	Timeout      time.Duration
 	Run          func(context.Context) error
+	// Only explicitly opted-in, low-frequency sources may retry early.
+	RetryOnFailure bool
+	// Optional per-source deadline for jobs containing independent subrequests.
+	// Zero means no early retry is due; the normal ticker still runs.
+	RetryAfter func() time.Duration
 }
 
 type Ticker interface {
@@ -76,7 +83,16 @@ func (r *Runner) CollectionHealth() (bool, string, time.Time) {
 }
 
 func NewRunner(jobs []Job) *Runner {
-	return &Runner{jobs: append([]Job(nil), jobs...), clock: realClock{}, results: map[string]jobResult{}}
+	return NewRunnerWithClock(jobs, realClock{})
+}
+
+// NewRunnerWithClock lets independent source and scheduler clocks be supplied.
+// The normal constructor always uses the system clock.
+func NewRunnerWithClock(jobs []Job, clock Clock) *Runner {
+	if clock == nil {
+		clock = realClock{}
+	}
+	return &Runner{jobs: append([]Job(nil), jobs...), clock: clock, results: map[string]jobResult{}}
 }
 
 func (r *Runner) Run(ctx context.Context) error {
@@ -102,6 +118,16 @@ func (r *Runner) runJob(ctx context.Context, job Job) {
 	}
 	ticker := r.clock.NewTicker(every)
 	defer ticker.Stop()
+	var retryTicker Ticker
+	var retryC <-chan time.Time
+	stopRetry := func() {
+		if retryTicker != nil {
+			retryTicker.Stop()
+		}
+		retryTicker, retryC = nil, nil
+	}
+	defer stopRetry()
+	failures := 0
 
 	done := make(chan error, 1)
 	running := false
@@ -127,9 +153,31 @@ func (r *Runner) runJob(ctx context.Context, job Job) {
 			return
 		case <-ticker.C():
 			start()
+		case <-retryC:
+			stopRetry()
+			start()
 		case err := <-done:
 			r.recordResult(job.Name, err)
 			running = false
+			if !job.RetryOnFailure || ctx.Err() != nil {
+				continue
+			}
+			stopRetry()
+			if err == nil {
+				failures = 0
+			} else if !errors.Is(err, ErrSkipped) {
+				failures = min(4, failures+1)
+			}
+			delay := retry.Delay(every, failures)
+			if job.RetryAfter != nil {
+				// Composite jobs own independent retry budgets. Consult their
+				// deadlines even when another component has exhausted its budget.
+				delay = job.RetryAfter()
+			}
+			if delay > 0 && delay < every {
+				retryTicker = r.clock.NewTicker(delay)
+				retryC = retryTicker.C()
+			}
 		}
 	}
 }

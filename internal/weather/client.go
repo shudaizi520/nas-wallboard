@@ -15,6 +15,7 @@ import (
 	"example.com/nas-wallboard/internal/config"
 	"example.com/nas-wallboard/internal/integration"
 	"example.com/nas-wallboard/internal/model"
+	"example.com/nas-wallboard/internal/retry"
 )
 
 const maxResponseBytes = 2 << 20
@@ -35,7 +36,8 @@ type minutelyPrecipitation struct {
 }
 
 type refreshCache struct {
-	status model.WeatherStatus
+	status   model.WeatherStatus
+	failures [4]int
 }
 
 type Client struct {
@@ -130,7 +132,11 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 	pending := 0
 	for index, source := range sources {
 		metadata := source.metadata
-		if refreshDue(now, metadata.AttemptedAt, source.interval) {
+		interval := source.interval
+		if metadata.Error != "" {
+			interval = retry.Delay(interval, next.failures[index])
+		}
+		if refreshDue(now, metadata.AttemptedAt, interval) {
 			pending++
 			// Each due request starts within the same bounded round and stages its
 			// own result. A slow sibling cannot consume another source's budget.
@@ -154,9 +160,13 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 			metadata.AttemptedAt = now
 		}
 		if outcome.err != nil {
+			if outcome.attempted {
+				next.failures[outcome.index] = min(4, next.failures[outcome.index]+1)
+			}
 			metadata.Error = "unavailable"
 			failures = append(failures, outcome.err)
 		} else {
+			next.failures[outcome.index] = 0
 			applyComponent(&next.status, outcome.value, outcome.index)
 			markSuccessfulSource(metadata, outcome.value, now, source.interval, outcome.index == 1)
 		}
@@ -222,6 +232,37 @@ func (c *Client) RefreshedAt() time.Time {
 		}
 	}
 	return latest
+}
+
+// RetryAfter is based on each failed source, not overall weather health. A
+// permanently failed daily source cannot consume a new current/rain budget.
+// This only consults cache metadata and never performs an upstream request.
+func (c *Client) RetryAfter() time.Duration {
+	components := c.cache.status.Components
+	if components == nil {
+		return 0
+	}
+	now := c.now()
+	var earliest time.Duration
+	for index, source := range []struct {
+		metadata model.WeatherComponent
+		interval time.Duration
+	}{
+		{components.Current, currentRefreshInterval},
+		{components.Rain, rainRefreshInterval},
+		{components.Alerts, alertRefreshInterval},
+		{components.Forecast, forecastRefreshInterval},
+	} {
+		failures := c.cache.failures[index]
+		if source.metadata.Error == "" || failures < 1 || failures > 3 {
+			continue
+		}
+		delay := max(time.Second, source.metadata.AttemptedAt.Add(retry.Delay(source.interval, failures)).Sub(now))
+		if earliest == 0 || delay < earliest {
+			earliest = delay
+		}
+	}
+	return earliest
 }
 
 func (c *Client) emptyStatus() model.WeatherStatus {

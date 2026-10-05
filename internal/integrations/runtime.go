@@ -83,7 +83,7 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 	timeout := durationSetting(settings, "call_timeout", 5*time.Second)
 	httpClient := &http.Client{Timeout: timeout}
 	job := func(name string, every time.Duration, run func(context.Context) error) integration.Collector {
-		return collector.NewRunner([]collector.Job{{Name: name, Every: every, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: run}})
+		return collector.NewRunner([]collector.Job{{Name: name, Every: every, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: run, RetryOnFailure: id == "scrutiny"}})
 	}
 	switch id {
 	case "truenas":
@@ -149,7 +149,7 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 		if err != nil {
 			return nil, err
 		}
-		return job(id, metadata.MinimumRefresh, func(ctx context.Context) error {
+		run := func(ctx context.Context) error {
 			before := client.RefreshedAt()
 			value, err := client.Refresh(ctx)
 			if err == nil && client.RefreshedAt().Equal(before) {
@@ -157,7 +157,8 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 			}
 			options.Store.SetWeather(value, err)
 			return err
-		}), nil
+		}
+		return collector.NewRunner([]collector.Job{{Name: id, Every: metadata.MinimumRefresh, MinimumEvery: metadata.MinimumRefresh, Timeout: timeout, Run: run, RetryOnFailure: true, RetryAfter: client.RetryAfter}}), nil
 	case "plex":
 		client, err := plex.New(config.PlexConfig{URL: stringSetting(settings, "url", ""), Token: secretString(secrets, "token"), CallTimeout: config.Duration{Duration: timeout}}, httpClient)
 		if err != nil {

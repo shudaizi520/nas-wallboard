@@ -50,11 +50,12 @@ func TestRefreshRetainsSuccessfulComponentsWhenAnotherFails(t *testing.T) {
 			if failed != "minutely" && got.RainSummary == "" {
 				t.Fatalf("successful rain lost: %#v", got)
 			}
-			now = now.Add(time.Minute)
+			// Even failed sources must not request again before the retry floor.
+			now = now.Add(30 * time.Second)
 			_, _ = client.Refresh(context.Background())
 			for path, count := range counts {
 				if count != 1 {
-					t.Fatalf("failed component exceeded existing request cadence: %s=%d", path, count)
+					t.Fatalf("component requested before its refresh/retry deadline: %s=%d", path, count)
 				}
 			}
 		})
