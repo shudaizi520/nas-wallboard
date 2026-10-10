@@ -330,7 +330,7 @@ body {
 .activity-line strong {
   min-width: 0;
   color: rgba(247, 250, 255, 0.94);
-  font-size: clamp(0.72rem, 0.68vw, 0.84rem);
+  font-size: var(--panel-copy-size);
   font-weight: 500;
 }
 
