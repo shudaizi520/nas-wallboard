@@ -71,7 +71,7 @@ func TestImperialWeatherConvertsAllDisplayedTemperaturesOnly(t *testing.T) {
 	}
 	module.Data.WindScale = nil
 	got = weatherActivities(module)
-	if !strings.Contains(got[0].Detail, "体感86°F") {
-		t.Fatalf("imperial comfort = %#v", got)
+	if got[0].Value != "68°F · 晴" || got[0].Detail != "" {
+		t.Fatalf("imperial quiet weather = %#v", got)
 	}
 }

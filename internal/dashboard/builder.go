@@ -608,8 +608,8 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	dry := detail == "未来2小时无明显降雨" || detail == "暂未见明显降雨"
 	tone := "active"
 	var warningParts *DetailPartList
-	if dry && weather.FeelsLike != nil && weather.HumidityPercent != nil {
-		detail = "体感" + weatherTemperature(*weather.FeelsLike, weather.Units) + " · 湿度" + compactNumber(math.Round(*weather.HumidityPercent)) + "%"
+	if dry {
+		detail = ""
 	}
 	if dry {
 		if hazard := weatherHazardDetail(weather); hazard != "" {
@@ -619,17 +619,25 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 	}
 	if len(weather.Warnings) > 0 {
 		if summary, warningTone, parts := weatherWarningSummary(weather.Warnings); summary != "" {
+			rainDetail := detail
 			detail = summary
 			if lastKnownWarning {
 				detail = "上次预警：" + detail
 			}
 			tone = warningTone
 			warningParts = parts
+			if !dry && rainDetail != "" && !strings.Contains(detail, rainDetail) {
+				detail += "\n" + rainDetail
+			}
 		}
 	}
 	if !dry {
 		if hazard := weatherHazardDetail(weather); hazard != "" && !strings.Contains(detail, hazard) {
-			detail = strings.TrimSpace(detail + " · " + hazard)
+			if detail == "" {
+				detail = hazard
+			} else {
+				detail += " · " + hazard
+			}
 			if tone == "active" {
 				tone = "warn"
 			}
@@ -722,6 +730,9 @@ func weatherActivities(module model.Module[model.WeatherStatus]) []Activity {
 	if forecastUnavailable {
 		return result
 	}
+	if days := weatherForecastDays(module.Data); len(days) > 0 {
+		result[0].ForecastDays = &days
+	}
 	for _, forecast := range module.Data.Forecasts {
 		if len(result) == 3 {
 			break
@@ -729,12 +740,94 @@ func weatherActivities(module model.Module[model.WeatherStatus]) []Activity {
 		if strings.TrimSpace(forecast.Condition) == "" || invalidNumber(forecast.TemperatureMin) || invalidNumber(forecast.TemperatureMax) {
 			continue
 		}
+		detail := weatherTemperature(forecast.TemperatureMin, module.Data.Units) + "–" + weatherTemperature(forecast.TemperatureMax, module.Data.Units)
+		if rain := forecastProbability(forecast.PrecipitationProbability, forecast.PrecipitationMissing); rain != "" {
+			detail += " · 雨" + rain
+		}
 		result = append(result, Activity{
 			ID: "weather:forecast:" + strconv.Itoa(len(result)-1), Icon: weatherIcon(forecast.ConditionCode), Tone: "neutral",
-			Value: strings.TrimSpace(forecast.Condition), Detail: weatherTemperature(forecast.TemperatureMin, module.Data.Units) + "–" + weatherTemperature(forecast.TemperatureMax, module.Data.Units) + " · 雨" + compactNumber(math.Round(forecast.PrecipitationProbability*100)) + "%",
+			Value: strings.TrimSpace(forecast.Condition), Detail: detail,
 		})
 	}
 	return result
+}
+
+func forecastProbability(probability float64, missing bool) string {
+	if missing || invalidNumber(probability) || probability <= 0 || probability > 1 {
+		return ""
+	}
+	if probability < 0.01 {
+		return "<1%"
+	}
+	return compactNumber(math.Round(probability*100)) + "%"
+}
+
+func weatherForecastDays(weather model.WeatherStatus) WeatherDayList {
+	forecasts := append([]model.WeatherForecast(nil), weather.Forecasts...)
+	if weather.TodayForecast != nil {
+		forecasts = append(forecasts, *weather.TodayForecast)
+	}
+	sort.SliceStable(forecasts, func(i, j int) bool { return forecasts[i].StartAt.Before(forecasts[j].StartAt) })
+	days := WeatherDayList{}
+	seen := map[string]bool{}
+	weekdays := [...]string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
+	for _, forecast := range forecasts {
+		if len(days) == 5 {
+			break
+		}
+		if forecast.StartAt.IsZero() || !forecast.EndAt.After(forecast.StartAt) || strings.TrimSpace(forecast.Condition) == "" || invalidNumber(forecast.TemperatureMin) || invalidNumber(forecast.TemperatureMax) || forecast.TemperatureMin > forecast.TemperatureMax {
+			continue
+		}
+		date := forecast.StartAt.Format("2006-01-02")
+		if seen[date] {
+			continue
+		}
+		seen[date] = true
+		label := weekdays[forecast.StartAt.Weekday()]
+		if weather.TodayForecast != nil && date == weather.TodayForecast.StartAt.Format("2006-01-02") {
+			label = "今天"
+		}
+		condition, code := forecast.Condition, forecast.ConditionCode
+		probability, missing := forecast.PrecipitationProbability, forecast.PrecipitationMissing
+		if forecast.NightPrecipitationKnown && !invalidNumber(forecast.NightPrecipitationProbability) && forecast.NightPrecipitationProbability >= 0 && forecast.NightPrecipitationProbability <= 1 && (missing || forecast.NightPrecipitationProbability > probability) {
+			probability, missing = forecast.NightPrecipitationProbability, false
+			if strings.TrimSpace(forecast.NightCondition) != "" {
+				condition, code = forecast.NightCondition, forecast.NightConditionCode
+			}
+		}
+		rain := forecastProbability(probability, missing)
+		wind, gust, uv := forecast.WindScale, forecast.WindGustMetersPerSecond, forecast.UVIndex
+		hazard := weatherHazardDetail(model.WeatherStatus{WindScale: &wind, WindGustMetersPerSecond: &gust, UVIndex: &uv})
+		badge := ""
+		if strings.Contains(hazard, "强风") || strings.Contains(hazard, "阵风") {
+			badge = "强风"
+		}
+		if strings.Contains(hazard, "紫外线") {
+			if badge == "" {
+				badge = "强紫外线"
+			} else {
+				badge += "/强紫外线"
+			}
+		}
+		detail := "白天" + forecast.Condition
+		if forecast.NightCondition != "" {
+			detail += " · 夜间" + forecast.NightCondition
+		}
+		if dayRain := forecastProbability(forecast.PrecipitationProbability, forecast.PrecipitationMissing); dayRain != "" {
+			detail += " · 白天降水" + dayRain
+		}
+		if nightRain := forecastProbability(forecast.NightPrecipitationProbability, !forecast.NightPrecipitationKnown); nightRain != "" {
+			detail += " · 夜间降水" + nightRain
+		}
+		if forecast.PrecipitationMissing && !forecast.NightPrecipitationKnown {
+			detail += " · 降水概率暂不可用"
+		}
+		if hazard != "" {
+			detail += " · 预报" + hazard
+		}
+		days = append(days, WeatherDay{Date: date, Label: label, Icon: weatherIcon(code), Condition: condition, High: weatherTemperature(forecast.TemperatureMax, weather.Units), Low: weatherTemperature(forecast.TemperatureMin, weather.Units), Rain: rain, Hazard: badge, Detail: detail})
+	}
+	return days
 }
 
 func compactWeatherWarningTitle(value string) (string, bool) {

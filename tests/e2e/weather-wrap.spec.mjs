@@ -46,10 +46,9 @@ for (const width of [300, 360]) {
       return {
         value: measure(node.querySelector('[data-field="value"]')),
         conditionLines: (() => {
-          const value = node.querySelector('[data-field="value"]');
+          const condition = node.querySelector('.weather-condition');
           const range = document.createRange();
-          range.setStart(value.firstChild, value.textContent.indexOf('晴'));
-          range.setEnd(value.firstChild, value.textContent.length);
+          range.selectNodeContents(condition);
           return range.getClientRects().length;
         })(),
         detail: measure(node.querySelector('[data-field="detail"]')),
@@ -66,7 +65,9 @@ for (const width of [300, 360]) {
       expect(bounds.bottom).toBeLessThanOrEqual(dimensions.row.bottom + 1);
     }
     expect(dimensions.detail.height).toBeGreaterThanOrEqual(dimensions.detail.lineHeight * 3 - 1);
-    expect(Math.abs(dimensions.detail.left - dimensions.metric.left)).toBeLessThanOrEqual(1);
+    // The enlarged current temperature/condition has its own compact header;
+    // reminders stay beside it, or underneath it in a narrow native window.
+    expect(dimensions.detail.left).toBeGreaterThanOrEqual(dimensions.value.left - 1);
     expect(dimensions.next.top).toBeGreaterThanOrEqual(dimensions.row.bottom - 1);
     await expect.poll(() => page.evaluate(() => window.hostSizes.findLast((message) => message.ready).height)).toBeGreaterThan(shortHeight);
     expect(await page.evaluate(() => window.hostSizes.findLast((message) => message.ready).width)).toBe(width);

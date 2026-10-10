@@ -78,7 +78,7 @@ func TestQWeatherCombinesCurrentRainWarningsAndTwoFutureDays(t *testing.T) {
 				"uvIndex":8
 			}`), nil
 		case "/weather/v1/daily/22.54/114.06":
-			if request.URL.Query().Get("days") != "3" || request.URL.Query().Get("localTime") != "true" || request.URL.Query().Get("lang") != "zh" {
+			if request.URL.Query().Get("days") != "5" || request.URL.Query().Get("localTime") != "true" || request.URL.Query().Get("lang") != "zh" {
 				t.Errorf("daily query = %s", request.URL.RawQuery)
 			}
 			return response(http.StatusOK, `{"days":[
