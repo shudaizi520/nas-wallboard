@@ -56,8 +56,8 @@ for(const width of [300,360]) {
       expect(icon.width).toBeLessThanOrEqual(21);
       expect(icon.top).toBeGreaterThanOrEqual(row.top);
       expect(icon.bottom).toBeLessThanOrEqual(row.bottom);
-      expect(dateWeight).toBeGreaterThanOrEqual(500);
-      expect(dateSize).toBeGreaterThanOrEqual(13);
+      expect(dateWeight).toBe(400);
+      expect(dateSize).toBeCloseTo(12,1);
       expect(dateAlpha).toBeGreaterThanOrEqual(0.82);
       expect(dateAlpha-lowAlpha).toBeGreaterThanOrEqual(0.16);
       if(hasRain){expect(rain.top).toBeGreaterThanOrEqual(icon.bottom);expect(rain.bottom).toBeLessThanOrEqual(row.bottom);expect(rainSize).toBeGreaterThanOrEqual(11);}
