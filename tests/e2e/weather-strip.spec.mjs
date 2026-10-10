@@ -43,10 +43,24 @@ for(const width of [300,360]) {
     await expect(current.locator('.weather-now')).toHaveCount(1);
     const dayLayout=await current.locator('.weather-day').evaluateAll(rows=>rows.map(row=>{
       const rect=selector=>row.querySelector(selector).getBoundingClientRect();
-      return {row:row.getBoundingClientRect().toJSON(),day:rect('[data-field="day"]').toJSON(),low:rect('[data-field="low"]').toJSON(),track:rect('.weather-range-track').toJSON(),high:rect('[data-field="high"]').toJSON()};
+      const day=row.querySelector('[data-field="day"]'),low=row.querySelector('[data-field="low"]');
+      const alpha=n=>Number(getComputedStyle(n).color.match(/[\d.]+/g)?.[3] ?? 1);
+      const rain=row.querySelector('[data-field="rain"]');
+      return {row:row.getBoundingClientRect().toJSON(),day:rect('[data-field="day"]').toJSON(),low:rect('[data-field="low"]').toJSON(),track:rect('.weather-range-track').toJSON(),high:rect('[data-field="high"]').toJSON(),icon:rect('.weather-day-icon svg').toJSON(),rain:rect('[data-field="rain"]').toJSON(),hasRain:!rain.hidden,rainSize:parseFloat(getComputedStyle(rain).fontSize),dateWeight:Number(getComputedStyle(day).fontWeight),dateSize:parseFloat(getComputedStyle(day).fontSize),dateAlpha:alpha(day),lowAlpha:alpha(low)};
     }));
     for(let i=0;i<dayLayout.length;i++){
-      const {row,day,low,track,high}=dayLayout[i];
+      const {row,day,low,track,high,icon,rain,hasRain,rainSize,dateWeight,dateSize,dateAlpha,lowAlpha}=dayLayout[i];
+      expect(row.height).toBeGreaterThanOrEqual(40);
+      expect(row.height).toBeLessThanOrEqual(42.5);
+      expect(icon.width).toBeGreaterThanOrEqual(19);
+      expect(icon.width).toBeLessThanOrEqual(21);
+      expect(icon.top).toBeGreaterThanOrEqual(row.top);
+      expect(icon.bottom).toBeLessThanOrEqual(row.bottom);
+      expect(dateWeight).toBeGreaterThanOrEqual(500);
+      expect(dateSize).toBeGreaterThanOrEqual(13);
+      expect(dateAlpha).toBeGreaterThanOrEqual(0.82);
+      expect(dateAlpha-lowAlpha).toBeGreaterThanOrEqual(0.16);
+      if(hasRain){expect(rain.top).toBeGreaterThanOrEqual(icon.bottom);expect(rain.bottom).toBeLessThanOrEqual(row.bottom);expect(rainSize).toBeGreaterThanOrEqual(11);}
       if(i)expect(row.top).toBeGreaterThanOrEqual(dayLayout[i-1].row.bottom-1);
       expect(Math.abs(row.height-dayLayout[0].row.height)).toBeLessThan(1);
       expect(day.right).toBeLessThanOrEqual(low.left);
@@ -125,4 +139,24 @@ test('daily columns fit supported decimal Fahrenheit and keep invalid range labe
   const missingCurrent={...dashboard,activities:dashboard.activities.map(a=>a.id==='weather'?{...a,value:'不可用',detail:'天气暂不可用'}:a)};
   await page.evaluate(async value=>{const {renderDashboard}=await import('/view.js');renderDashboard(document,value);},missingCurrent);
   await expect(current.locator('.weather-now')).toHaveCount(0);
+});
+
+test('touch forecasts retain comfortable targets while keeping the smaller icons',async({browser})=>{
+  const context=await browser.newContext({hasTouch:true,viewport:{width:375,height:900}});
+  try{
+    const page=await context.newPage();
+    const dashboard={...fixture,width:300,activities:fixture.activities.map(a=>a.id==='weather'?{...a,forecast_days:days}:a)};
+    await page.route('http://wallboard.test/**',async route=>{
+      const path=new URL(route.request().url()).pathname;
+      if(path==='/api/dashboard')return route.fulfill({json:dashboard});
+      if(path==='/api/setup/status')return route.fulfill({json:{setup_required:false}});
+      const file=path==='/'?'index.html':path.slice(1);
+      return route.fulfill({body:await readFile(join(root,'web',file)),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});
+    });
+    await page.goto('http://wallboard.test/?desktop=1');
+    expect(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches)).toBe(true);
+    await expect(page.locator('.weather-day')).toHaveCount(5);
+    const rows=await page.locator('.weather-day').evaluateAll(nodes=>nodes.map(n=>({height:n.getBoundingClientRect().height,icon:n.querySelector('svg').getBoundingClientRect().width})));
+    for(const row of rows){expect(row.height).toBeGreaterThanOrEqual(44);expect(row.icon).toBeLessThanOrEqual(21);}
+  }finally{await context.close();}
 });
