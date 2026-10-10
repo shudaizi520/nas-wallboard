@@ -59,6 +59,45 @@ function normalizeForecastDays(value) {
   }));
 }
 
+function forecastTemperature(value) {
+  const match = typeof value === 'string' && value.match(/^(-?\d+(?:\.\d+)?)°(F?)$/);
+  if (!match || !Number.isFinite(Number(match[1]))) return null;
+  return {value: Number(match[1]), unit: match[2]};
+}
+
+export function weatherTemperatureRanges(days, currentValue = '') {
+  const ranges = days.map(day => {
+    const low = forecastTemperature(day.low), high = forecastTemperature(day.high);
+    return low && high && low.unit === high.unit && low.value <= high.value ? {low, high} : null;
+  });
+  const valid = ranges.filter(Boolean);
+  if (!valid.length || valid.some(range => range.low.unit !== valid[0].low.unit)) return days.map(() => null);
+  const minimum = Math.min(...valid.map(range => range.low.value));
+  const maximum = Math.max(...valid.map(range => range.high.value));
+  const span = maximum - minimum;
+  if (!Number.isFinite(span)) return days.map(() => null);
+  const currentMatch = text(currentValue).match(/^(-?\d+(?:\.\d+)?°F?)(?:\s|·|$)/);
+  const current = forecastTemperature(currentMatch?.[1]);
+  const percent = value => span === 0 ? 50 : (value - minimum) / span * 100;
+  return ranges.map((range, index) => range ? {
+    start: percent(range.low.value),
+    width: span === 0 ? 0 : (range.high.value - range.low.value) / span * 100,
+    current: days[index].label === '今天' && current && current.unit === range.low.unit
+      && current.value >= range.low.value && current.value <= range.high.value ? percent(current.value) : null,
+  } : null);
+}
+
+export function weatherForecastDetail(day) {
+  const detail = day.detail || day.condition;
+  const missing = text(day.hazard).split('/').filter(hazard => {
+    if (!hazard) return false;
+    if (hazard === '强风') return !/(强风|阵风)/.test(detail);
+    if (hazard === '强紫外线') return !detail.includes('紫外线');
+    return !detail.includes(hazard);
+  });
+  return detail + (missing.length ? ` · 预报${missing.join('/')}` : '');
+}
+
 export function normalizeDashboard(raw = {}) {
   const width = Number.isInteger(raw.width) && raw.width >= 300 && raw.width <= 720 ? raw.width : 360;
   const metrics = compactMetrics(Array.isArray(raw.metrics) ? raw.metrics.map((metric, index) => ({
@@ -178,7 +217,7 @@ function setWeatherValue(node, activity) {
 function createForecastDay(document) {
   const button = document.createElement('button');
   button.type = 'button'; button.className = 'weather-day';
-  button.innerHTML = '<small data-field="day"></small><svg aria-hidden="true"><use data-field="icon"></use></svg><b data-field="high"></b><span data-field="low"></span><small data-field="rain" hidden></small><small data-field="hazard" hidden></small>';
+  button.innerHTML = '<small data-field="day"></small><span class="weather-day-icon"><svg aria-hidden="true"><use data-field="icon"></use></svg><small data-field="rain" hidden></small></span><span data-field="low"></span><span class="weather-range-track" aria-hidden="true"><i class="weather-range"></i></span><b data-field="high"></b>';
   return button;
 }
 
@@ -191,20 +230,33 @@ function renderForecastDetails(row, days) {
   }
   const detail = row.querySelector('.weather-day-detail');
   detail.hidden = !selected;
-  const value = selected ? `${selected.label} · ${selected.low}–${selected.high} · ${selected.detail || selected.condition}` : '';
+  const value = selected ? `${selected.label} · ${selected.low}–${selected.high} · ${weatherForecastDetail(selected)}` : '';
   if (detail.textContent !== value) detail.textContent = value;
 }
 
-function renderForecast(row, days = []) {
+function renderForecast(row, days = [], currentValue = '') {
   const strip = row.querySelector('[data-list="forecast"]');
   strip.hidden = !days.length;
-  strip.style.setProperty('--forecast-count', String(Math.max(days.length, 1)));
-  reconcile(strip, days.map(day => ({...day, id: day.date})), createForecastDay, (button, day) => {
+  // Reserve one shared label width, including optional Fahrenheit decimals.
+  const temperatureChars = Math.max(0, ...days.flatMap(day => [day.low.length, day.high.length]));
+  strip.style.setProperty('--forecast-temperature-size', `${temperatureChars + 0.25}ch`);
+  const ranges = weatherTemperatureRanges(days, currentValue);
+  reconcile(strip, days.map((day, index) => ({...day, id: day.date, range: ranges[index]})), createForecastDay, (button, day) => {
     button.dataset.icon = day.icon;
     button.querySelector('[data-field="icon"]').setAttribute('href', `#icon-${day.icon}`);
-    for (const field of ['day', 'high', 'low', 'rain', 'hazard']) setText(button, `[data-field="${field}"]`, field === 'day' ? day.label : day[field]);
+    for (const field of ['day', 'high', 'low', 'rain']) setText(button, `[data-field="${field}"]`, field === 'day' ? day.label : day[field]);
     button.querySelector('[data-field="rain"]').hidden = !day.rain;
-    button.querySelector('[data-field="hazard"]').hidden = !day.hazard;
+    const track = button.querySelector('.weather-range-track');
+    track.hidden = !day.range;
+    if (day.range) {
+      track.style.setProperty('--range-start', `${day.range.start}%`);
+      track.style.setProperty('--range-width', `${day.range.width}%`);
+    }
+    let marker = track.querySelector('.weather-now');
+    if (day.range?.current !== null && day.range?.current !== undefined) {
+      if (!marker) { marker = track.ownerDocument.createElement('i'); marker.className = 'weather-now'; track.append(marker); }
+      marker.style.left = `${day.range.current}%`;
+    } else marker?.remove();
     button.setAttribute('aria-label', `${day.label}，${day.condition}，${day.low}到${day.high}${day.rain ? `，降水概率${day.rain}` : ''}${day.hazard ? `，预报${day.hazard}` : ''}。点击展开详情`);
     button.onclick = () => {
       row.dataset.selectedDate = row.dataset.selectedDate === day.date ? '' : day.date;
@@ -285,7 +337,7 @@ export function renderDashboard(root, raw) {
     setText(node, '[data-field="title"]', activity.title);
     if (variant === 'weather') setWeatherValue(node.querySelector('[data-field="value"]'), activity);
     else setText(node, '[data-field="value"]', activity.value);
-    renderForecast(node, activity.forecastDays);
+    renderForecast(node, activity.forecastDays, activity.value);
     setActivityDetail(node.querySelector('[data-field="detail"]'), activity);
     const value = node.querySelector('[data-field="value"]');
     const detail = node.querySelector('[data-field="detail"]');
