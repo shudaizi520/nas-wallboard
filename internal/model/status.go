@@ -116,6 +116,7 @@ type WeatherStatus struct {
 	RainPoints              []RainPoint        `json:"rain_points,omitempty"`
 	Warnings                []WeatherWarning   `json:"warnings"`
 	Forecasts               []WeatherForecast  `json:"forecasts,omitempty"`
+	TodayForecast           *WeatherForecast   `json:"today_forecast,omitempty"`
 	Source                  string             `json:"source"`
 	Units                   string             `json:"units"`
 	Components              *WeatherComponents `json:"components,omitempty"`
@@ -139,13 +140,21 @@ type WeatherComponents struct {
 }
 
 type WeatherForecast struct {
-	StartAt                  time.Time `json:"start_at,omitempty"`
-	EndAt                    time.Time `json:"end_at,omitempty"`
-	Condition                string    `json:"condition"`
-	ConditionCode            string    `json:"condition_code"`
-	TemperatureMin           float64   `json:"temperature_min"`
-	TemperatureMax           float64   `json:"temperature_max"`
-	PrecipitationProbability float64   `json:"precipitation_probability"`
+	StartAt                       time.Time `json:"start_at,omitempty"`
+	EndAt                         time.Time `json:"end_at,omitempty"`
+	Condition                     string    `json:"condition"`
+	ConditionCode                 string    `json:"condition_code"`
+	TemperatureMin                float64   `json:"temperature_min"`
+	TemperatureMax                float64   `json:"temperature_max"`
+	PrecipitationProbability      float64   `json:"precipitation_probability"`
+	PrecipitationMissing          bool      `json:"precipitation_missing,omitempty"`
+	NightCondition                string    `json:"night_condition,omitempty"`
+	NightConditionCode            string    `json:"night_condition_code,omitempty"`
+	NightPrecipitationProbability float64   `json:"night_precipitation_probability,omitempty"`
+	NightPrecipitationKnown       bool      `json:"night_precipitation_known,omitempty"`
+	WindScale                     int       `json:"wind_scale,omitempty"`
+	WindGustMetersPerSecond       float64   `json:"wind_gust_meters_per_second,omitempty"`
+	UVIndex                       float64   `json:"uv_index,omitempty"`
 }
 
 type RainPoint struct {

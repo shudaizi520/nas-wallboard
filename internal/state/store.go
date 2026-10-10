@@ -394,6 +394,10 @@ func cloneWeatherStatus(value model.WeatherStatus) model.WeatherStatus {
 	}
 	value.Warnings = append([]model.WeatherWarning(nil), value.Warnings...)
 	value.Forecasts = append([]model.WeatherForecast(nil), value.Forecasts...)
+	if value.TodayForecast != nil {
+		copy := *value.TodayForecast
+		value.TodayForecast = &copy
+	}
 	value.RainPoints = append([]model.RainPoint(nil), value.RainPoints...)
 	return value
 }

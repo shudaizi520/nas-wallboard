@@ -37,6 +37,14 @@ func futureDaily(start, end, now time.Time) bool {
 	return day.After(today)
 }
 
+func currentDaily(start, end, now time.Time) bool {
+	if start.IsZero() || !end.After(now) || start.After(now) {
+		return false
+	}
+	local := now.In(start.Location())
+	return start.Year() == local.Year() && start.YearDay() == local.YearDay()
+}
+
 func parseRainPoints(raw []minutelyPrecipitation, now time.Time) ([]model.RainPoint, error) {
 	if len(raw) == 0 {
 		return nil, errors.New("rain forecast has no samples")
@@ -122,16 +130,27 @@ func ProjectAt(value model.WeatherStatus, now time.Time) model.WeatherStatus {
 		}
 	}
 	original := value.Forecasts
+	hadForecast := value.TodayForecast != nil || len(original) > 0
+	if value.TodayForecast != nil && !currentDaily(value.TodayForecast.StartAt, value.TodayForecast.EndAt, now) {
+		value.TodayForecast = nil
+	} else if value.TodayForecast != nil {
+		copy := *value.TodayForecast
+		value.TodayForecast = &copy
+	}
 	if len(original) > 0 {
 		value.Forecasts = make([]model.WeatherForecast, 0, len(original))
 		for _, forecast := range original {
+			if currentDaily(forecast.StartAt, forecast.EndAt, now) {
+				copy := forecast
+				value.TodayForecast = &copy
+			}
 			if forecast.StartAt.IsZero() && forecast.EndAt.IsZero() || futureDaily(forecast.StartAt, forecast.EndAt, now) {
 				value.Forecasts = append(value.Forecasts, forecast)
 			}
 		}
-		if len(value.Forecasts) == 0 && value.Components != nil {
-			value.Components.Forecast.Stale = true
-		}
+	}
+	if hadForecast && len(value.Forecasts) == 0 && value.TodayForecast == nil && value.Components != nil {
+		value.Components.Forecast.Stale = true
 	}
 	return value
 }

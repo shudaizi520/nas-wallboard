@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -215,6 +216,7 @@ func applyComponent(destination *model.WeatherStatus, value model.WeatherStatus,
 		destination.Warnings = value.Warnings
 	case 3:
 		destination.Forecasts = value.Forecasts
+		destination.TodayForecast = value.TodayForecast
 	}
 }
 
@@ -334,31 +336,42 @@ func (c *Client) readCurrent(ctx context.Context, result *model.WeatherStatus) e
 
 func (c *Client) readForecast(ctx context.Context, result *model.WeatherStatus) error {
 	coordinates := coordinate(c.cfg.Latitude) + "/" + coordinate(c.cfg.Longitude)
+	type period struct {
+		Condition struct {
+			Text string `json:"text"`
+			Code string `json:"code"`
+		} `json:"condition"`
+		Precipitation struct {
+			Probability *float64 `json:"probability"`
+		} `json:"precipitation"`
+		Wind struct {
+			Scale int `json:"scale"`
+		} `json:"wind"`
+		Gust struct {
+			Value float64 `json:"value"`
+			Unit  string  `json:"unit"`
+		} `json:"windGustMax"`
+	}
 	var daily struct {
 		Days []struct {
-			Start   string `json:"forecastStartTime"`
-			End     string `json:"forecastEndTime"`
-			Daytime struct {
-				Condition struct {
-					Text string `json:"text"`
-					Code string `json:"code"`
-				} `json:"condition"`
-				Precipitation struct {
-					Probability float64 `json:"probability"`
-				} `json:"precipitation"`
-			} `json:"daytime"`
+			Start          string  `json:"forecastStartTime"`
+			End            string  `json:"forecastEndTime"`
+			Daytime        period  `json:"daytime"`
+			Nighttime      period  `json:"nighttime"`
+			UVIndex        float64 `json:"uvIndexMax"`
 			TemperatureMin struct {
-				Value float64 `json:"value"`
+				Value *float64 `json:"value"`
 			} `json:"temperatureMin"`
 			TemperatureMax struct {
-				Value float64 `json:"value"`
+				Value *float64 `json:"value"`
 			} `json:"temperatureMax"`
 		} `json:"days"`
 	}
-	if err := c.getJSON(ctx, "/weather/v1/daily/"+coordinates, url.Values{"days": {"3"}, "lang": {"zh"}, "localTime": {"true"}}, &daily); err != nil {
+	if err := c.getJSON(ctx, "/weather/v1/daily/"+coordinates, url.Values{"days": {"5"}, "lang": {"zh"}, "localTime": {"true"}}, &daily); err != nil {
 		return fmt.Errorf("read daily forecast: %w", err)
 	}
-	forecasts := make([]model.WeatherForecast, 0, 2)
+	forecasts := make([]model.WeatherForecast, 0, 4)
+	var today *model.WeatherForecast
 	for _, day := range daily.Days {
 		start, err := parseWeatherTime(day.Start)
 		if err != nil {
@@ -368,23 +381,46 @@ func (c *Client) readForecast(ctx context.Context, result *model.WeatherStatus) 
 		if err != nil || !end.After(start) {
 			return errors.New("daily forecast has invalid end time")
 		}
-		if !futureDaily(start, end, c.now()) {
+		if !futureDaily(start, end, c.now()) && !currentDaily(start, end, c.now()) {
 			continue
 		}
-		if len(forecasts) == 2 {
+		if day.TemperatureMin.Value == nil || day.TemperatureMax.Value == nil || *day.TemperatureMin.Value > *day.TemperatureMax.Value || strings.TrimSpace(day.Daytime.Condition.Text) == "" {
 			continue
 		}
-		forecasts = append(forecasts, model.WeatherForecast{
+		forecast := model.WeatherForecast{
 			StartAt: start, EndAt: end,
 			Condition: strings.TrimSpace(day.Daytime.Condition.Text), ConditionCode: strings.TrimSpace(day.Daytime.Condition.Code),
-			TemperatureMin: day.TemperatureMin.Value, TemperatureMax: day.TemperatureMax.Value,
-			PrecipitationProbability: day.Daytime.Precipitation.Probability,
-		})
+			TemperatureMin: *day.TemperatureMin.Value, TemperatureMax: *day.TemperatureMax.Value,
+			PrecipitationMissing: true,
+			NightCondition:       strings.TrimSpace(day.Nighttime.Condition.Text), NightConditionCode: strings.TrimSpace(day.Nighttime.Condition.Code),
+			UVIndex: day.UVIndex,
+		}
+		if probability := day.Daytime.Precipitation.Probability; probability != nil && *probability >= 0 && *probability <= 1 {
+			forecast.PrecipitationProbability, forecast.PrecipitationMissing = *probability, false
+		}
+		if probability := day.Nighttime.Precipitation.Probability; probability != nil && *probability >= 0 && *probability <= 1 {
+			forecast.NightPrecipitationProbability, forecast.NightPrecipitationKnown = *probability, true
+		}
+		for _, part := range []period{day.Daytime, day.Nighttime} {
+			if part.Wind.Scale >= 0 && part.Wind.Scale <= 17 {
+				forecast.WindScale = max(forecast.WindScale, part.Wind.Scale)
+			}
+			if part.Gust.Unit == "m/s" && part.Gust.Value >= 0 && !math.IsInf(part.Gust.Value, 0) {
+				forecast.WindGustMetersPerSecond = math.Max(forecast.WindGustMetersPerSecond, part.Gust.Value)
+			}
+		}
+		if currentDaily(start, end, c.now()) {
+			copy := forecast
+			today = &copy
+		} else if len(forecasts) < 4 {
+			forecasts = append(forecasts, forecast)
+		}
 	}
-	if len(forecasts) == 0 {
+	if len(forecasts) == 0 && today == nil {
 		return errors.New("daily forecast has no valid future days")
 	}
 	result.Forecasts = forecasts
+	result.TodayForecast = today
 	return nil
 }
 

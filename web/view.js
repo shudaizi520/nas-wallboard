@@ -2,6 +2,7 @@ const KNOWN_ICONS = new Set(['cpu', 'disk', 'network', 'weather-sunny', 'weather
 const KNOWN_TONES = new Set(['neutral', 'active', 'warn', 'bad', 'good']);
 const WARNING_COLORS = new Set(['red', 'orange', 'yellow', 'blue', 'purple', 'black']);
 const detailRenderKeys = new WeakMap();
+const weatherValueKeys = new WeakMap();
 const METRIC_LABELS = new Map([
   ['cpu', '处理器'],
   ['cpu_temperature', '处理器温度'],
@@ -42,6 +43,22 @@ function compactMetrics(metrics) {
   });
 }
 
+function normalizeForecastDays(value) {
+  if (!Array.isArray(value)) return [];
+  const dates = new Set();
+  return value.filter(day => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day?.date) || dates.has(day.date)
+      || !/^(今天|周[一二三四五六日])$/.test(day?.label)
+      || typeof day?.condition !== 'string' || !day.condition.trim()
+      || !/^-?\d+(?:\.\d+)?°F?$/.test(day?.high) || !/^-?\d+(?:\.\d+)?°F?$/.test(day?.low)) return false;
+    dates.add(day.date);
+    return true;
+  }).slice(0, 5).map(day => ({
+    date: day.date, label: day.label, icon: icon(day.icon), condition: day.condition,
+    high: day.high, low: day.low, rain: text(day.rain), detail: text(day.detail), hazard: text(day.hazard),
+  }));
+}
+
 export function normalizeDashboard(raw = {}) {
   const width = Number.isInteger(raw.width) && raw.width >= 300 && raw.width <= 720 ? raw.width : 360;
   const metrics = compactMetrics(Array.isArray(raw.metrics) ? raw.metrics.map((metric, index) => ({
@@ -53,12 +70,14 @@ export function normalizeDashboard(raw = {}) {
   const activities = Array.isArray(raw.activities) ? raw.activities.map((activity, index) => {
     const id = text(activity?.id) || `activity:${index}`;
     const download = id === 'downloads';
+    const forecastDays = id === 'weather' ? normalizeForecastDays(activity?.forecast_days) : [];
     return {
       id,
       icon: icon(activity?.icon),
       title: text(activity?.title),
       value: text(activity?.value),
       detail: download ? '' : text(activity?.detail),
+      ...(forecastDays.length ? {forecastDays} : {}),
       ...(KNOWN_TONES.has(activity?.value_tone) ? {valueTone: activity.value_tone} : {}),
       ...(id === 'weather' && Array.isArray(activity?.detail_parts) && activity.detail_parts.length > 0
         && activity.detail_parts.every((part) => typeof part?.text === 'string')
@@ -77,7 +96,8 @@ export function normalizeDashboard(raw = {}) {
     uptime: text(raw.uptime),
     nasPower: text(raw.nas_power),
     metrics,
-    activities,
+    activities: activities.some(activity => activity.id === 'weather' && activity.forecastDays?.length)
+      ? activities.filter(activity => !activity.id.startsWith('weather:forecast:')) : activities,
   };
 }
 
@@ -137,8 +157,62 @@ function createMetric(document) {
 function createActivityRow(document) {
   const row = document.createElement('article');
   row.className = 'activity-row';
-  row.innerHTML = '<span class="activity-icon" aria-hidden="true"><svg><use data-field="icon"></use></svg></span><div class="activity-copy"><div class="activity-line"><strong data-field="title"></strong><span data-field="value"></span></div><p data-field="detail"></p><div class="activity-progress-list" data-list="progress" hidden></div></div><i class="activity-signal" aria-hidden="true"></i>';
+  row.innerHTML = '<span class="activity-icon" aria-hidden="true"><svg><use data-field="icon"></use></svg></span><div class="activity-copy"><div class="activity-line"><strong data-field="title"></strong><span data-field="value"></span></div><p data-field="detail"></p><div class="activity-progress-list" data-list="progress" hidden></div></div><i class="activity-signal" aria-hidden="true"></i><div class="weather-strip" data-list="forecast" aria-label="每日天气预报" hidden></div><p class="weather-day-detail" aria-live="polite" hidden></p>';
   return row;
+}
+
+function setWeatherValue(node, activity) {
+  const key = activity.value;
+  if (weatherValueKeys.get(node) === key) return;
+  const match = activity.value.match(/^(-?\d+(?:\.\d+)?°F?)\s*(?:·\s*)?(.+)$/);
+  if (match) {
+    const temperature = node.ownerDocument.createElement('b');
+    temperature.className = 'weather-temperature'; temperature.textContent = match[1];
+    const condition = node.ownerDocument.createElement('small');
+    condition.className = 'weather-condition'; condition.textContent = match[2];
+    node.replaceChildren(temperature, node.ownerDocument.createTextNode(' '), condition);
+  } else node.textContent = activity.value.replace(' · ', ' ');
+  weatherValueKeys.set(node, key);
+}
+
+function createForecastDay(document) {
+  const button = document.createElement('button');
+  button.type = 'button'; button.className = 'weather-day';
+  button.innerHTML = '<small data-field="day"></small><svg aria-hidden="true"><use data-field="icon"></use></svg><b data-field="high"></b><span data-field="low"></span><small data-field="rain" hidden></small><small data-field="hazard" hidden></small>';
+  return button;
+}
+
+function renderForecastDetails(row, days) {
+  const selected = days.find(day => day.date === row.dataset.selectedDate);
+  if (!selected) delete row.dataset.selectedDate;
+  for (const button of row.querySelector('[data-list="forecast"]').children) {
+    button.setAttribute('aria-pressed', String(button.dataset.key === selected?.date));
+    button.setAttribute('aria-expanded', String(button.dataset.key === selected?.date));
+  }
+  const detail = row.querySelector('.weather-day-detail');
+  detail.hidden = !selected;
+  const value = selected ? `${selected.label} · ${selected.low}–${selected.high} · ${selected.detail || selected.condition}` : '';
+  if (detail.textContent !== value) detail.textContent = value;
+}
+
+function renderForecast(row, days = []) {
+  const strip = row.querySelector('[data-list="forecast"]');
+  strip.hidden = !days.length;
+  strip.style.setProperty('--forecast-count', String(Math.max(days.length, 1)));
+  reconcile(strip, days.map(day => ({...day, id: day.date})), createForecastDay, (button, day) => {
+    button.dataset.icon = day.icon;
+    button.querySelector('[data-field="icon"]').setAttribute('href', `#icon-${day.icon}`);
+    for (const field of ['day', 'high', 'low', 'rain', 'hazard']) setText(button, `[data-field="${field}"]`, field === 'day' ? day.label : day[field]);
+    button.querySelector('[data-field="rain"]').hidden = !day.rain;
+    button.querySelector('[data-field="hazard"]').hidden = !day.hazard;
+    button.setAttribute('aria-label', `${day.label}，${day.condition}，${day.low}到${day.high}${day.rain ? `，降水概率${day.rain}` : ''}${day.hazard ? `，预报${day.hazard}` : ''}。点击展开详情`);
+    button.onclick = () => {
+      row.dataset.selectedDate = row.dataset.selectedDate === day.date ? '' : day.date;
+      renderForecastDetails(row, days);
+      row.closest('.glass-panel')?.dispatchEvent(new Event('wallboard:rendered'));
+    };
+  });
+  renderForecastDetails(row, days);
 }
 
 function createDownloadProgress(document) {
@@ -200,6 +274,8 @@ export function renderDashboard(root, raw) {
     setTone(node, activity.tone);
     const variant = activityVariant(activity.id);
     node.classList.toggle('activity-row--weather', variant === 'weather');
+    node.classList.toggle('activity-row--weather-current', variant === 'weather');
+    node.classList.toggle('activity-row--weather-strip', variant === 'weather' && Boolean(activity.forecastDays?.length));
     node.classList.toggle('activity-row--forecast', variant === 'weather-forecast');
     node.classList.toggle('activity-row--fan', variant === 'fan');
     node.classList.toggle('activity-row--media', variant === 'media');
@@ -207,7 +283,9 @@ export function renderDashboard(root, raw) {
     node.dataset.icon = activity.icon;
     node.querySelector('[data-field="icon"]')?.setAttribute('href', `#icon-${activity.icon}`);
     setText(node, '[data-field="title"]', activity.title);
-    setText(node, '[data-field="value"]', variant === 'weather' ? activity.value.replace(' · ', ' ') : activity.value);
+    if (variant === 'weather') setWeatherValue(node.querySelector('[data-field="value"]'), activity);
+    else setText(node, '[data-field="value"]', activity.value);
+    renderForecast(node, activity.forecastDays);
     setActivityDetail(node.querySelector('[data-field="detail"]'), activity);
     const value = node.querySelector('[data-field="value"]');
     const detail = node.querySelector('[data-field="detail"]');

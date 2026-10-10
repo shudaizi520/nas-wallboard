@@ -315,7 +315,7 @@ for (const viewport of [
     }));
     expect.soft(networkColors.up).toBe(networkColors.down);
     await expect(page.getByText('天气', {exact: true})).toHaveCount(0);
-    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('体感31° · 湿度64%');
+    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toBeHidden();
     const weather = page.locator('[data-key="weather"]');
     await expect(weather).toHaveAttribute('data-icon', 'weather-sunny');
     await expect(weather.locator('[data-field="icon"]')).toHaveAttribute('href', '#icon-weather-sunny');
@@ -399,7 +399,7 @@ for (const viewport of [
           contentRight: Math.round(node.getBoundingClientRect().right),
         };
       });
-      expect(weatherAlignment.lineCenterDelta).toBeLessThanOrEqual(2);
+      await expect(weather.locator('.weather-temperature')).toHaveText('29°');
       expect(weatherAlignment.detailFontSize).toBeGreaterThanOrEqual(12);
       const fanLayout = await page.locator('[data-key="fan"]').evaluate((node) => {
         const previous = node.previousElementSibling.getBoundingClientRect();
@@ -425,7 +425,6 @@ for (const viewport of [
           left('[data-key="cpu"] [data-field="value"]'),
           left('[data-key="disk_temperature"] [data-field="value"]'),
           left('[data-key="network"] [data-field="rates"]'),
-          left('[data-key="weather"] [data-field="detail"]'),
           left('[data-key="weather:forecast:0"] [data-field="detail"]'),
           left('[data-key="weather:forecast:1"] [data-field="detail"]'),
           left('[data-key="fan"] [data-field="value"]'),
@@ -476,10 +475,11 @@ for (const viewport of [
       const detail = detailNode.getBoundingClientRect();
       return {
         gap: Math.round(detail.left - value.right),
+        below: detail.top >= value.bottom - 1,
         inside: detail.right <= node.getBoundingClientRect().right + 1,
       };
     });
-    expect(longWeather.gap).toBeGreaterThanOrEqual(12);
+    expect(longWeather.below || longWeather.gap >= 6).toBe(true);
     expect(longWeather.inside).toBe(true);
 
     await page.evaluate(async (data) => {
@@ -493,7 +493,7 @@ for (const viewport of [
     });
     await expect(page.locator('[data-bind="connection"]')).toHaveAttribute('data-tone', 'bad');
     await expect(page.locator('[data-key="cpu"] [data-field="value"]')).toHaveText('18.4% · 56°');
-    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toHaveText('体感31° · 湿度64%');
+    await expect(page.locator('[data-key="weather"] [data-field="detail"]')).toBeHidden();
     expect(consoleErrors).toEqual([]);
 
     await page.evaluate(async (data) => {

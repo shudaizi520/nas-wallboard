@@ -131,7 +131,7 @@ func TestBuilderShowsNetworkDiskHealthAndWeather(t *testing.T) {
 	if !equalMetrics(view.Metrics, wantMetrics) {
 		t.Fatalf("metrics = %#v, want %#v", view.Metrics, wantMetrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", ValueTone: "neutral", Value: "29° · 多云", Detail: "体感35° · 湿度64%"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "active", ValueTone: "neutral", Value: "29° · 多云", Detail: ""}
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
 	}
@@ -161,14 +161,14 @@ func TestWeatherActivityOnlyShowsConservativeHazardSignals(t *testing.T) {
 		wantDetail string
 		wantTone   string
 	}{
-		{name: "below every threshold", windScale: intPointer(5), windGust: float64Pointer(17.19), uvIndex: float64Pointer(7.99), wantDetail: "体感35° · 湿度64%", wantTone: "active"},
+		{name: "below every threshold", windScale: intPointer(5), windGust: float64Pointer(17.19), uvIndex: float64Pointer(7.99), wantDetail: "", wantTone: "active"},
 		{name: "sustained force six", windScale: intPointer(6), wantDetail: "强风6级", wantTone: "warn"},
 		{name: "force eight gust", windScale: intPointer(4), windGust: float64Pointer(17.2), wantDetail: "阵风8级", wantTone: "warn"},
 		{name: "stronger sustained wind wins", windScale: intPointer(10), windGust: float64Pointer(17.2), wantDetail: "强风10级", wantTone: "warn"},
 		{name: "very high ultraviolet", uvIndex: float64Pointer(8), wantDetail: "紫外线很强 · 指数8", wantTone: "warn"},
 		{name: "extreme ultraviolet", uvIndex: float64Pointer(11), wantDetail: "紫外线极强 · 指数11", wantTone: "warn"},
 		{name: "wind and ultraviolet", windScale: intPointer(6), uvIndex: float64Pointer(8), wantDetail: "强风6级 · 紫外线8", wantTone: "warn"},
-		{name: "invalid values", windScale: intPointer(18), windGust: float64Pointer(-1), uvIndex: float64Pointer(16), wantDetail: "体感35° · 湿度64%", wantTone: "active"},
+		{name: "invalid values", windScale: intPointer(18), windGust: float64Pointer(-1), uvIndex: float64Pointer(16), wantDetail: "", wantTone: "active"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -221,7 +221,7 @@ func TestBuilderHighlightsSMARTFailureAndWeatherWarning(t *testing.T) {
 	if len(view.Metrics) != 1 || view.Metrics[0] != (Metric{ID: "disk_temperature", Icon: "disk", Value: "42° · SMART", Tone: "bad"}) {
 		t.Fatalf("metrics = %#v", view.Metrics)
 	}
-	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", ValueTone: "neutral", Value: "31° · 雷阵雨", Detail: "高温黄色预警 · 强风7级 · 紫外线10"}
+	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", ValueTone: "neutral", Value: "31° · 雷阵雨", Detail: "高温黄色预警\n正在降雨 · 强风7级 · 紫外线10"}
 	view.Activities[0].DetailParts = nil // Independent color contract is covered by weather_colors_test.
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
@@ -292,7 +292,7 @@ func TestWeatherActivitiesAppendTwoUnlabelledForecastRows(t *testing.T) {
 		},
 	}})
 	want := []Activity{
-		{ID: "weather", Icon: "weather-cloudy", Tone: "active", ValueTone: "neutral", Value: "29° · 少云", Detail: "未来2小时无明显降雨"},
+		{ID: "weather", Icon: "weather-cloudy", Tone: "active", ValueTone: "neutral", Value: "29° · 少云", Detail: ""},
 		{ID: "weather:forecast:0", Icon: "weather-cloudy", Tone: "neutral", Value: "多云", Detail: "26°–33° · 雨35%"},
 		{ID: "weather:forecast:1", Icon: "weather-rain", Tone: "neutral", Value: "阵雨", Detail: "25°–31° · 雨80%"},
 	}
