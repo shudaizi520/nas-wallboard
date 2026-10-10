@@ -647,8 +647,8 @@ body {
   align-items: center;
   gap: 0.4rem;
   min-width: 0;
-  min-height: 3.125rem;
-  padding: 0.2rem 0;
+  min-height: 2.625rem;
+  padding: 0.15rem 0;
   border: 0;
   border-radius: 0;
   font: inherit;
@@ -662,9 +662,10 @@ body {
 .weather-day + .weather-day { border-top: 1px solid rgba(255, 255, 255, 0.045); }
 .weather-day[aria-pressed="true"] { background: rgba(160, 195, 243, 0.1); }
 .weather-day small { font-size: 0.75rem; line-height: 1.35; overflow-wrap: anywhere; }
-.weather-day [data-field="day"], .weather-day [data-field="low"] { color: var(--muted); }
-.weather-day-icon { display: grid; justify-items: center; gap: 0.15rem; }
-.weather-day svg { width: 1.5rem; height: 1.5rem; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.weather-day [data-field="day"] { color: var(--text); font-size: 0.85rem; font-weight: 500; }
+.weather-day [data-field="low"] { color: var(--muted); }
+.weather-day-icon { display: grid; justify-items: center; gap: 0.075rem; }
+.weather-day svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .weather-day[data-icon="weather-sunny"] svg { color: rgb(255, 204, 76); }
 .weather-day[data-icon="weather-cloudy"] svg { color: rgb(171, 202, 232); }
 .weather-day[data-icon="weather-rain"] svg { color: rgb(103, 211, 249); }
@@ -672,12 +673,16 @@ body {
 .weather-day [data-field="high"], .weather-day [data-field="low"] { font-size: 0.85rem; }
 .weather-day [data-field="high"] { grid-column: 5; font-weight: 500; text-align: right; }
 .weather-day [data-field="low"] { grid-column: 3; text-align: right; }
-.weather-day [data-field="rain"] { color: var(--active); }
+.weather-day [data-field="rain"] { color: var(--active); font-size: 0.7rem; line-height: 1.25; }
 .weather-day [data-field="high"], .weather-day [data-field="low"], .weather-day [data-field="rain"] { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .weather-range-track { grid-column: 4; display: block; position: relative; height: 0.35rem; min-width: 0; border-radius: 1rem; background: rgba(127, 157, 199, 0.14); }
 .weather-range { position: absolute; top: 0; left: min(var(--range-start), calc(100% - 2px)); width: var(--range-width); min-width: 2px; max-width: 100%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffc14c, #ff8a36); }
 .weather-now { position: absolute; top: 50%; width: 0.4rem; height: 0.4rem; border-radius: 50%; transform: translate(-50%, -50%); background: var(--panel-copy); box-shadow: 0 0 0 1.5px #172237; }
 .weather-day-detail { grid-column: 1 / -1; margin: 0; padding: 0.3rem 0 0.2rem; color: var(--muted); font-size: 0.75rem; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
+
+@media (pointer: coarse) {
+  .weather-day { min-height: 2.75rem; }
+}
 
 @container (max-width: 230px) {
   .activity-row.activity-row--weather-current { grid-template-columns: 1.75rem minmax(0, 1fr); }
