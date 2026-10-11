@@ -166,6 +166,9 @@ func (s *Store) SetWeather(value model.WeatherStatus, err error) {
 				latest = source.UpdatedAt
 			}
 		}
+		if value.Components.Hourly != nil && value.Components.Hourly.UpdatedAt.After(latest) {
+			latest = value.Components.Hourly.UpdatedAt
+		}
 		s.weather.UpdatedAt = latest
 		s.weather.Error = ""
 		if err != nil {
@@ -323,6 +326,10 @@ func (s *Store) Snapshot() model.Snapshot {
 			source.Stale = source.Stale || source.UpdatedAt.IsZero() || !now.Before(source.ExpiresAt)
 			unavailable = unavailable || source.Stale || source.Error != ""
 		}
+		if source := components.Hourly; source != nil {
+			source.Stale = source.Stale || source.UpdatedAt.IsZero() || !now.Before(source.ExpiresAt)
+			unavailable = unavailable || source.Stale || source.Error != ""
+		}
 		snapshot.Weather.Partial = unavailable && !snapshot.Weather.UpdatedAt.IsZero()
 	}
 	snapshot.Home.Stale = stale(now, snapshot.Home.UpdatedAt, intervals.Home)
@@ -370,6 +377,10 @@ func combineDiskHealth(sources ...model.Module[[]model.DiskHealthStatus]) model.
 func cloneWeatherStatus(value model.WeatherStatus) model.WeatherStatus {
 	if value.Components != nil {
 		copy := *value.Components
+		if copy.Hourly != nil {
+			hourly := *copy.Hourly
+			copy.Hourly = &hourly
+		}
 		value.Components = &copy
 	}
 	if value.FeelsLike != nil {
@@ -399,6 +410,7 @@ func cloneWeatherStatus(value model.WeatherStatus) model.WeatherStatus {
 		value.TodayForecast = &copy
 	}
 	value.RainPoints = append([]model.RainPoint(nil), value.RainPoints...)
+	value.Hourly = append([]model.WeatherHour(nil), value.Hourly...)
 	return value
 }
 

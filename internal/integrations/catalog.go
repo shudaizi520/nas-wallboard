@@ -97,8 +97,8 @@ func builtIns() []integration.Definition {
 		definition("truenas", "TrueNAS 系统", "读取系统、存储、网络、应用、告警和保护任务状态。", "server", "系统", 5*time.Second, true, []string{"truenas"},
 			[]integration.Field{urlField("url", "TrueNAS 地址", "填写 TrueNAS WebSocket API 地址，例如 wss://192.168.1.10/api/current。首次安装时向导会自动转换普通网页地址。"), textField("username", "专用账户", "在 TrueNAS 的“凭据 → 用户”中新建只读专用账户，并填写账户名。"), advancedField(boolField("insecure_skip_verify", "自签名证书", "仅在可信局域网使用自签名证书时开启。", false)), durationField("call_timeout", "请求超时", "一般保留默认值；网络较慢时再调大。", "10s"), secretField("api_key", "API 密钥", "在该用户的“View API Keys → Add API Key”中创建；也可从右上角账户菜单进入“My API Keys”。密钥只显示一次。")},
 			capabilities("system", "系统状态", "metric", "storage", "存储状态", "metric", "alerts", "系统告警", "activity", "memory", "内存压力", "activity", "pool_capacity", "存储池容量", "metric", "smart", "硬盘健康", "activity", "replication", "复制任务", "activity", "app_exceptions", "应用异常", "activity")),
-		definition("qweather", "和风天气", "显示实时天气、未来两小时降雨和气象预警。", "weather", "环境", 5*time.Minute, false, nil,
-			[]integration.Field{textField("api_host", "API 主机", "在和风天气开发服务控制台打开项目，复制分配给项目的 API Host（不含 https://）。"), textField("latitude", "纬度", "填写位置的十进制纬度，例如 30.70；可从地图或经纬度查询工具复制。"), textField("longitude", "经度", "填写位置的十进制经度，例如 121.00。"), textDefaultField("name", "显示位置", "填写桌面上显示的地区名称，例如平湖。", "天气"), advancedField(selectField("units", "计量单位", "中国大陆通常保持“公制”。", "metric", integration.Option{Value: "metric", Label: "公制"}, integration.Option{Value: "imperial", Label: "英制"})), durationField("call_timeout", "请求超时", "一般保留默认值；网络较慢时再调大。", "8s"), secretField("api_key", "API 密钥", "在和风天气开发服务控制台的项目凭据中创建并复制 API Key。")},
+		definition("qweather", "和风天气", "显示实时天气、智能小时预报、五天预报、短时降雨和气象预警。", "weather", "环境", 5*time.Minute, false, nil,
+			[]integration.Field{textField("api_host", "API 主机", "在和风天气开发服务控制台打开项目，复制分配给项目的 API Host（不含 https://）。"), textField("latitude", "纬度", "填写位置的十进制纬度，例如 30.70；可从地图或经纬度查询工具复制。"), textField("longitude", "经度", "填写位置的十进制经度，例如 121.00。"), textDefaultField("name", "显示位置", "填写桌面上显示的地区名称，例如平湖。", "天气"), boolField("hourly_enabled", "智能小时预报", "固定显示未来十二小时的关键时段，无需滑动。每30分钟读取一次24小时预报；关闭后不查询小时接口。", true), advancedField(selectField("units", "计量单位", "中国大陆通常保持“公制”。", "metric", integration.Option{Value: "metric", Label: "公制"}, integration.Option{Value: "imperial", Label: "英制"})), durationField("call_timeout", "请求超时", "一般保留默认值；网络较慢时再调大。", "8s"), secretField("api_key", "API 密钥", "在和风天气开发服务控制台的项目凭据中创建并复制 API Key。")},
 			capabilities("weather", "天气动态", "activity")),
 		definition("plex", "Plex 媒体", "为每个播放终端分别显示当前播放会话。", "play", "媒体", 15*time.Second, false, []string{"plex"}, mediaFields("Plex", "token", "访问令牌"), capabilities("sessions", "播放会话", "activity")),
 		definition("jellyfin", "Jellyfin 媒体", "为每个 Jellyfin 播放终端分别显示当前会话。", "play", "媒体", 15*time.Second, false, []string{"jellyfin"}, mediaFields("Jellyfin", "token", "访问令牌"), capabilities("sessions", "播放会话", "activity")),
@@ -179,7 +179,7 @@ func probeBuiltIn(ctx context.Context, id string, settings integration.Config, s
 		if latitudeErr != nil || longitudeErr != nil || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 {
 			return integration.ProbeResult{Stage: integration.ProbeStageFeature, Message: "天气经纬度无效"}
 		}
-		client, err := weather.New(config.WeatherConfig{Enabled: true, APIHost: stringSetting(settings, "api_host", ""), APIKey: secretString(secrets, "api_key"), Name: stringSetting(settings, "name", "天气"), Latitude: latitude, Longitude: longitude, Units: stringSetting(settings, "units", "metric"), CallTimeout: config.Duration{Duration: durationSetting(settings, "call_timeout", 8*time.Second)}}, nil)
+		client, err := weather.New(config.WeatherConfig{Enabled: true, HourlyEnabled: hourlyEnabled(settings), APIHost: stringSetting(settings, "api_host", ""), APIKey: secretString(secrets, "api_key"), Name: stringSetting(settings, "name", "天气"), Latitude: latitude, Longitude: longitude, Units: stringSetting(settings, "units", "metric"), CallTimeout: config.Duration{Duration: durationSetting(settings, "call_timeout", 8*time.Second)}}, nil)
 		if err != nil {
 			return integration.ProbeFailure(err)
 		}
@@ -227,6 +227,15 @@ func stringSetting(settings integration.Config, key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func hourlyEnabled(settings integration.Config) bool {
+	value, exists := settings["hourly_enabled"]
+	if !exists {
+		return true
+	}
+	enabled, _ := value.(bool)
+	return enabled
 }
 
 func boolSetting(settings integration.Config, key string) bool {

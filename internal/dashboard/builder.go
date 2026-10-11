@@ -158,7 +158,15 @@ func (b *Builder) Build(snapshot model.Snapshot, now time.Time) View {
 				view.Activities = append(view.Activities, activity)
 			}
 		case config.ActivityTypeWeather:
-			view.Activities = append(view.Activities, weatherActivities(snapshot.Weather)...)
+			rows := weatherActivities(snapshot.Weather)
+			if len(rows) > 0 {
+				if rows[0].Value != "不可用" {
+					rows[0].Icon = weatherIconAt(snapshot.Weather.Data.ConditionCode, snapshot.Weather.Data, effectiveNow(snapshot, now))
+				}
+				initializeWeatherReminders(&rows[0])
+				addHourlyWeather(&rows[0], snapshot.Weather, effectiveNow(snapshot, now))
+			}
+			view.Activities = append(view.Activities, rows...)
 		case config.ActivityTypeMemoryPressure:
 			if activity, ok := memoryPressureActivity(snapshot.Memory, configured); ok {
 				view.Activities = append(view.Activities, activity)
@@ -352,6 +360,12 @@ func compactRate(value float64) string {
 
 func invalidNumber(value float64) bool {
 	return value < 0 || math.IsNaN(value) || math.IsInf(value, 0)
+}
+
+// Weather temperatures can legitimately be below zero; rates and probabilities
+// still use the stricter nonnegative check above.
+func invalidTemperature(value float64) bool {
+	return math.IsNaN(value) || math.IsInf(value, 0)
 }
 
 func poolCapacityMetric(module model.Module[[]model.PoolStatus], configured config.MetricConfig) Metric {
@@ -586,7 +600,7 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 			componentNotice += "日预报暂不可用"
 		}
 	}
-	if currentUnavailable || invalidNumber(weather.Temperature) || strings.TrimSpace(weather.Condition) == "" {
+	if currentUnavailable || invalidTemperature(weather.Temperature) || strings.TrimSpace(weather.Condition) == "" {
 		missing := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用", Detail: "天气暂不可用"}
 		if sources := weather.Components; sources != nil && (weatherComponentAvailable(sources.Alerts) || lastKnownWarning) {
 			if summary, warningTone, parts := weatherWarningSummary(weather.Warnings); summary != "" {
@@ -737,7 +751,7 @@ func weatherActivities(module model.Module[model.WeatherStatus]) []Activity {
 		if len(result) == 3 {
 			break
 		}
-		if strings.TrimSpace(forecast.Condition) == "" || invalidNumber(forecast.TemperatureMin) || invalidNumber(forecast.TemperatureMax) {
+		if strings.TrimSpace(forecast.Condition) == "" || invalidTemperature(forecast.TemperatureMin) || invalidTemperature(forecast.TemperatureMax) {
 			continue
 		}
 		detail := weatherTemperature(forecast.TemperatureMin, module.Data.Units) + "–" + weatherTemperature(forecast.TemperatureMax, module.Data.Units)
@@ -775,7 +789,7 @@ func weatherForecastDays(weather model.WeatherStatus) WeatherDayList {
 		if len(days) == 5 {
 			break
 		}
-		if forecast.StartAt.IsZero() || !forecast.EndAt.After(forecast.StartAt) || strings.TrimSpace(forecast.Condition) == "" || invalidNumber(forecast.TemperatureMin) || invalidNumber(forecast.TemperatureMax) || forecast.TemperatureMin > forecast.TemperatureMax {
+		if forecast.StartAt.IsZero() || !forecast.EndAt.After(forecast.StartAt) || strings.TrimSpace(forecast.Condition) == "" || invalidTemperature(forecast.TemperatureMin) || invalidTemperature(forecast.TemperatureMax) || forecast.TemperatureMin > forecast.TemperatureMax {
 			continue
 		}
 		date := forecast.StartAt.Format("2006-01-02")
@@ -974,7 +988,9 @@ func weatherIcon(code string) string {
 		return "weather-cloudy"
 	}
 	switch {
-	case value == 100 || value == 150 || value == 900:
+	case value == 150:
+		return "weather-moon"
+	case value == 100 || value == 900:
 		return "weather-sunny"
 	case value >= 101 && value <= 104 || value >= 151 && value <= 153:
 		return "weather-cloudy"
@@ -982,7 +998,7 @@ func weatherIcon(code string) string {
 		return "weather-storm"
 	case value >= 300 && value <= 399:
 		return "weather-rain"
-	case value >= 400 && value <= 499 || value == 901:
+	case value >= 400 && value <= 499:
 		return "weather-snow"
 	case value >= 500 && value <= 515:
 		return "weather-fog"

@@ -18,16 +18,37 @@ type Metric struct {
 }
 
 type Activity struct {
-	ID           string          `json:"id"`
-	Icon         string          `json:"icon"`
-	Tone         string          `json:"tone"`
-	Title        string          `json:"title"`
-	Value        string          `json:"value"`
-	Detail       string          `json:"detail"`
-	ValueTone    string          `json:"value_tone,omitempty"`
-	DetailParts  *DetailPartList `json:"detail_parts,omitempty"`
-	Progress     *ProgressList   `json:"progress,omitempty"`
-	ForecastDays *WeatherDayList `json:"forecast_days,omitempty"`
+	ID               string               `json:"id"`
+	Icon             string               `json:"icon"`
+	Tone             string               `json:"tone"`
+	Title            string               `json:"title"`
+	Value            string               `json:"value"`
+	Detail           string               `json:"detail"`
+	ValueTone        string               `json:"value_tone,omitempty"`
+	DetailParts      *DetailPartList      `json:"detail_parts,omitempty"`
+	Progress         *ProgressList        `json:"progress,omitempty"`
+	ForecastDays     *WeatherDayList      `json:"forecast_days,omitempty"`
+	ForecastHours    *WeatherHourList     `json:"forecast_hours,omitempty"`
+	WeatherReminders *WeatherReminderList `json:"weather_reminders,omitempty"`
+}
+
+type WeatherReminderList []WeatherReminder
+
+type WeatherReminder struct {
+	Text        string          `json:"text"`
+	Pinned      bool            `json:"pinned"`
+	DetailParts *DetailPartList `json:"detail_parts,omitempty"`
+}
+
+type WeatherHourList []WeatherHour
+
+type WeatherHour struct {
+	At          string `json:"at"`
+	Label       string `json:"label"`
+	Icon        string `json:"icon"`
+	Condition   string `json:"condition"`
+	Temperature string `json:"temperature"`
+	Rain        string `json:"rain"`
 }
 
 type WeatherDayList []WeatherDay

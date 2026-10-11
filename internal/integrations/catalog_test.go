@@ -108,6 +108,26 @@ func TestHomeAssistantCatalogOffersOptionalNASPowerSensorAtFifteenSeconds(t *tes
 	}
 }
 
+func TestWeatherSettingsExposeHourlySwitchWithoutASecondIntegration(t *testing.T) {
+	registry, err := BuiltInRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, _ := registry.Definition("qweather")
+	for _, field := range definition.Fields() {
+		if field.Key == "hourly_enabled" {
+			if field.Kind != integration.FieldBoolean || field.Default != true || field.Advanced {
+				t.Fatalf("hourly switch is not directly configurable: %#v", field)
+			}
+			if err := definition.Validate(integration.Config{"api_host": "abc123.qweatherapi.com", "latitude": "22.54", "longitude": "114.06", "hourly_enabled": false}); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+	}
+	t.Fatal("hourly switch missing from existing weather settings")
+}
+
 func TestQWeatherCatalogPollsAtFiveMinuteAlertCadence(t *testing.T) {
 	registry, err := BuiltInRegistry()
 	if err != nil {

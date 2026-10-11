@@ -146,16 +146,17 @@ type AppConfig struct {
 }
 
 type WeatherConfig struct {
-	Enabled     bool     `yaml:"enabled"`
-	Name        string   `yaml:"name"`
-	Latitude    float64  `yaml:"latitude"`
-	Longitude   float64  `yaml:"longitude"`
-	Units       string   `yaml:"units"`
-	APIHostFile string   `yaml:"api_host_file"`
-	SecretFile  string   `yaml:"secret_file"`
-	CallTimeout Duration `yaml:"call_timeout"`
-	APIHost     string   `yaml:"-" json:"-"`
-	APIKey      string   `yaml:"-" json:"-"`
+	Enabled       bool     `yaml:"enabled"`
+	HourlyEnabled bool     `yaml:"hourly_enabled"`
+	Name          string   `yaml:"name"`
+	Latitude      float64  `yaml:"latitude"`
+	Longitude     float64  `yaml:"longitude"`
+	Units         string   `yaml:"units"`
+	APIHostFile   string   `yaml:"api_host_file"`
+	SecretFile    string   `yaml:"secret_file"`
+	CallTimeout   Duration `yaml:"call_timeout"`
+	APIHost       string   `yaml:"-" json:"-"`
+	APIKey        string   `yaml:"-" json:"-"`
 }
 
 type HomeAssistantConfig struct {
@@ -242,7 +243,7 @@ func defaults() Config {
 			UptimeKuma:    Duration{30 * time.Second},
 			Scrutiny:      Duration{30 * time.Minute},
 		},
-		Weather:       WeatherConfig{Name: "天气", Units: "metric", CallTimeout: Duration{8 * time.Second}},
+		Weather:       WeatherConfig{Name: "天气", Units: "metric", HourlyEnabled: true, CallTimeout: Duration{8 * time.Second}},
 		HomeAssistant: HomeAssistantConfig{FanName: "小米风扇", RemindAfter: Duration{2 * time.Hour}, CallTimeout: Duration{5 * time.Second}},
 		QBittorrent:   QBittorrentConfig{CallTimeout: Duration{5 * time.Second}},
 		Plex:          PlexConfig{CallTimeout: Duration{5 * time.Second}},
