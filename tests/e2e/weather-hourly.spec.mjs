@@ -37,9 +37,9 @@ for(const width of [300,360])test(`fixed hourly strip fits ${width}px and retain
   await expect(strip).toBeHidden();await expect(row.locator('.weather-day')).toHaveCount(5);
 });
 
-test('next-day labels and rain probabilities fit the narrow fixed panel without smaller fonts',async({page})=>{
-  const midnight=hours.map((h,i)=>({...h,at:`2026-10-${i?12:11}T${i?String((i-1)*2).padStart(2,'0'):22}:00:00+08:00`,label:i?`次日${(i-1)*2}时`:'现在',rain:i?'65%':''}));
-  const dashboard={...fixture,width:300,activities:fixture.activities.map(a=>a.id==='weather'?{...a,forecast_hours:midnight,forecast_days:days}:a)};
+for(const width of [300,360])for(const hasRain of [false,true])test(`cross-midnight hours at ${width}px stay single-line ${hasRain?'with':'without'} probability`,async({page})=>{
+  const midnight=hours.map((h,i)=>({...h,at:`2026-10-${i?12:11}T${i?String((i-1)*2).padStart(2,'0'):22}:00:00+08:00`,label:i?`次日${(i-1)*2}时`:'现在',rain:i&&hasRain?'65%':''}));
+  const dashboard={...fixture,width,activities:fixture.activities.map(a=>a.id==='weather'?{...a,detail:'次日0时可能有雨',forecast_hours:midnight,forecast_days:days}:a)};
   await page.route('http://wallboard.test/**',async route=>{
     const path=new URL(route.request().url()).pathname;
     if(path==='/api/dashboard')return route.fulfill({json:dashboard});
@@ -49,8 +49,20 @@ test('next-day labels and rain probabilities fit the narrow fixed panel without 
   });
   await page.goto('http://wallboard.test/?desktop=1');
   const strip=page.locator('[data-key="weather"] .weather-hourly');
-  await expect(strip.locator('[data-field="hour"]')).toHaveText(['现在','次日0时','次日2时','次日4时','次日6时','次日8时']);
-  const geometry=await strip.evaluate(n=>({overflow:n.scrollWidth>n.clientWidth+1,height:n.getBoundingClientRect().height,slots:[...n.children].map(h=>({overflow:h.scrollWidth>h.clientWidth+1,font:getComputedStyle(h.querySelector('[data-field="hour"]')).fontSize,top:h.querySelector('svg').getBoundingClientRect().top}))}));
-  expect(geometry.overflow).toBe(false);expect(geometry.height).toBeLessThanOrEqual(102);
-  for(const slot of geometry.slots){expect(slot.overflow).toBe(false);expect(slot.font).toBe('12px');expect(slot.top).toBeCloseTo(geometry.slots[0].top,1);}
+  await expect(strip.locator('[data-field="hour"]')).toHaveText(['现在','0时','2时','4时','6时','8时']);
+  await expect(strip).not.toContainText('次日');
+  await expect(strip.locator('.weather-hour').nth(1)).toHaveAttribute('aria-label',/^次日0时，/);
+  await expect(strip.locator('.weather-hour').nth(1)).toHaveAttribute('data-key','2026-10-12T00:00:00+08:00');
+  await expect(page.locator('[data-key="weather"] [data-field="detail"]').first()).toHaveText('次日0时可能有雨');
+  await expect(strip.locator('[data-field="rain"]:visible')).toHaveCount(hasRain?5:0);
+  const geometry=await strip.evaluate(n=>({overflow:n.scrollWidth>n.clientWidth+1,height:n.getBoundingClientRect().height,slots:[...n.children].map(h=>({overflow:h.scrollWidth>h.clientWidth+1,font:getComputedStyle(h.querySelector('[data-field="hour"]')).fontSize,labelHeight:h.querySelector('[data-field="hour"]').getBoundingClientRect().height,iconWidth:h.querySelector('svg').getBoundingClientRect().width,top:h.querySelector('svg').getBoundingClientRect().top}))}));
+  expect(geometry.overflow).toBe(false);expect(geometry.height).toBeLessThanOrEqual(hasRain?82:66);
+  for(const slot of geometry.slots){expect(slot.overflow).toBe(false);expect(slot.font).toBe('12px');expect(slot.labelHeight).toBeLessThanOrEqual(14.5);expect(slot.iconWidth).toBe(20);expect(slot.top).toBeCloseTo(geometry.slots[0].top,1);}
+  if(hasRain){
+    await page.evaluate(async raw=>{const {renderDashboard}=await import('/view.js');renderDashboard(document,raw);},{...dashboard,activities:dashboard.activities.map(a=>a.id==='weather'?{...a,forecast_hours:midnight.map(h=>({...h,rain:''}))}:a)});
+    await expect(strip.locator('[data-field="rain"]:visible')).toHaveCount(0);
+    const height=await strip.evaluate(n=>n.getBoundingClientRect().height);
+    expect(height).toBeLessThanOrEqual(66);
+    expect(geometry.height-height).toBeGreaterThan(10);
+  }
 });

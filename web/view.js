@@ -312,7 +312,7 @@ function renderHourly(row, hours = []) {
   const strip = row.querySelector('[data-list="hourly"]');
   strip.hidden = !hours.length;
   strip.style.setProperty('--hour-count', String(hours.length || 6));
-  strip.classList.toggle('weather-hourly--next-day', hours.some(hour => hour.label.startsWith('次日')));
+  strip.classList.remove('weather-hourly--next-day');
   reconcile(strip, hours.map(hour => ({...hour, id: hour.at})), document => {
     const node = document.createElement('div'); node.className = 'weather-hour';
     node.innerHTML = '<small data-field="hour"></small><svg aria-hidden="true"><use data-field="icon"></use></svg><span data-field="temperature"></span><small data-field="rain" hidden></small>';
@@ -320,14 +320,8 @@ function renderHourly(row, hours = []) {
   }, (node, hour) => {
     node.dataset.icon = hour.icon;
     node.querySelector('[data-field="icon"]').setAttribute('href', `#icon-${hour.icon}`);
-    const label = node.querySelector('[data-field="hour"]');
-    if (label.textContent !== hour.label) {
-      if (hour.label.startsWith('次日')) {
-        const day = label.ownerDocument.createElement('span'); day.className = 'weather-hour-date'; day.textContent = '次日';
-        const time = label.ownerDocument.createElement('span'); time.textContent = hour.label.slice(2);
-        label.replaceChildren(day, time);
-      } else label.textContent = hour.label;
-    }
+    const displayLabel = hour.label.startsWith('次日') ? hour.label.slice(2) : hour.label;
+    setText(node, '[data-field="hour"]', displayLabel);
     for (const field of ['temperature','rain']) setText(node, `[data-field="${field}"]`, hour[field]);
     node.querySelector('[data-field="rain"]').hidden = !hour.rain;
     node.setAttribute('aria-label', `${hour.label}，${hour.condition}，${hour.temperature}${hour.rain ? `，降水概率${hour.rain}` : ''}`);

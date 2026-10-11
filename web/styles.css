@@ -662,8 +662,6 @@ body {
 }
 
 .weather-hour [data-field="hour"] { color: var(--text); font-size: 0.75rem; line-height: 1.2; white-space: nowrap; }
-.weather-hourly--next-day .weather-hour [data-field="hour"] { display: grid; align-content: end; justify-items: center; min-height: 2.4em; }
-.weather-hour-date { color: var(--muted); }
 .weather-hour [data-field="temperature"] { font-size: 0.85rem; font-weight: 500; white-space: nowrap; }
 .weather-hour [data-field="rain"] { color: var(--active); font-size: 0.7rem; line-height: 1.15; white-space: nowrap; }
 .weather-hour svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: rgb(171, 202, 232); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
