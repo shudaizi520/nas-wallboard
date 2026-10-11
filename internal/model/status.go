@@ -180,10 +180,11 @@ type RainPoint struct {
 }
 
 type WeatherWarning struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Severity string `json:"severity"`
-	Color    string `json:"color"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Severity  string    `json:"severity"`
+	Color     string    `json:"color"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
 }
 
 type DiskHealthStatus struct {

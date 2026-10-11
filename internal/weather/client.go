@@ -327,7 +327,8 @@ func (c *Client) readCurrent(ctx context.Context, result *model.WeatherStatus) e
 			Code string `json:"code"`
 		} `json:"condition"`
 		Temperature struct {
-			Value float64 `json:"value"`
+			Value *float64 `json:"value"`
+			Unit  string   `json:"unit"`
 		} `json:"temperature"`
 		FeelsLike *struct {
 			Value float64 `json:"value"`
@@ -344,12 +345,15 @@ func (c *Client) readCurrent(ctx context.Context, result *model.WeatherStatus) e
 	if err := c.getJSON(ctx, "/weather/v1/current/"+coordinates, url.Values{"lang": {"zh"}}, &current); err != nil {
 		return fmt.Errorf("read current weather: %w", err)
 	}
+	if current.Temperature.Value == nil || math.IsNaN(*current.Temperature.Value) || math.IsInf(*current.Temperature.Value, 0) || current.Temperature.Unit != "" && current.Temperature.Unit != "°C" || strings.TrimSpace(current.Condition.Text) == "" {
+		return errors.New("current weather has invalid temperature or condition")
+	}
 	result.FeelsLike = nil
 	result.HumidityPercent = nil
 	result.WindScale = nil
 	result.WindGustMetersPerSecond = nil
 	result.UVIndex = nil
-	result.Temperature = current.Temperature.Value
+	result.Temperature = *current.Temperature.Value
 	if current.FeelsLike != nil {
 		value := current.FeelsLike.Value
 		result.FeelsLike = &value
@@ -500,10 +504,18 @@ func (c *Client) readRain(ctx context.Context, result *model.WeatherStatus) erro
 func (c *Client) readAlerts(ctx context.Context, result *model.WeatherStatus) error {
 	coordinates := coordinate(c.cfg.Latitude) + "/" + coordinate(c.cfg.Longitude)
 	var alerts struct {
+		Metadata struct {
+			ZeroResult bool `json:"zeroResult"`
+		} `json:"metadata"`
 		Alerts []struct {
-			ID        string `json:"id"`
-			Severity  string `json:"severity"`
-			Headline  string `json:"headline"`
+			ID          string `json:"id"`
+			Severity    string `json:"severity"`
+			Headline    string `json:"headline"`
+			ExpireTime  string `json:"expireTime"`
+			MessageType struct {
+				Code       string   `json:"code"`
+				Supersedes []string `json:"supersedes"`
+			} `json:"messageType"`
 			EventType struct {
 				Name string `json:"name"`
 			} `json:"eventType"`
@@ -515,17 +527,58 @@ func (c *Client) readAlerts(ctx context.Context, result *model.WeatherStatus) er
 	if err := c.getJSON(ctx, "/weatheralert/v1/current/"+coordinates, url.Values{"lang": {"zh"}, "localTime": {"true"}}, &alerts); err != nil {
 		return fmt.Errorf("read weather alerts: %w", err)
 	}
+	// An explicit empty array or zeroResult is a successful no-alert response.
+	// Missing/null data without that flag is an error, not permission to clear
+	// the last known warning. Stage the entire response before committing it.
+	if alerts.Alerts == nil && !alerts.Metadata.ZeroResult || alerts.Metadata.ZeroResult && len(alerts.Alerts) > 0 {
+		return errors.New("weather alerts have invalid result data")
+	}
 	warnings := make([]model.WeatherWarning, 0, len(alerts.Alerts))
+	superseded := map[string]bool{}
 	for _, alert := range alerts.Alerts {
+		kind := strings.ToLower(strings.TrimSpace(alert.MessageType.Code))
+		if kind != "" && kind != "alert" && kind != "update" && kind != "cancel" {
+			return errors.New("weather alert has invalid message type")
+		}
+		var expiresAt time.Time
+		if strings.TrimSpace(alert.ExpireTime) != "" {
+			var err error
+			expiresAt, err = parseWeatherTime(alert.ExpireTime)
+			if err != nil {
+				return errors.New("weather alert has invalid expiry time")
+			}
+		}
+		if kind == "update" || kind == "cancel" {
+			for _, id := range alert.MessageType.Supersedes {
+				if id = strings.TrimSpace(id); id != "" {
+					superseded[id] = true
+				}
+			}
+		}
+		// Cancellation is lifecycle information, never a fresh danger signal.
+		// Do not infer it from a localized headline or drop unrelated events.
+		if kind == "cancel" {
+			continue
+		}
 		title := strings.TrimSpace(alert.Headline)
 		if title == "" {
 			title = strings.TrimSpace(alert.EventType.Name)
 		}
+		if title == "" {
+			return errors.New("weather alert has no description")
+		}
 		warnings = append(warnings, model.WeatherWarning{
 			ID: strings.TrimSpace(alert.ID), Title: title, Severity: strings.ToLower(strings.TrimSpace(alert.Severity)), Color: strings.ToLower(strings.TrimSpace(alert.Color.Code)),
+			ExpiresAt: expiresAt,
 		})
 	}
-	result.Warnings = warnings
+	active := make([]model.WeatherWarning, 0, len(warnings))
+	for _, warning := range warnings {
+		if !superseded[warning.ID] && (warning.ExpiresAt.IsZero() || c.now().Before(warning.ExpiresAt)) {
+			active = append(active, warning)
+		}
+	}
+	result.Warnings = active
 	return nil
 }
 
