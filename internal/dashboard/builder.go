@@ -165,6 +165,7 @@ func (b *Builder) Build(snapshot model.Snapshot, now time.Time) View {
 				}
 				initializeWeatherReminders(&rows[0])
 				addHourlyWeather(&rows[0], snapshot.Weather, effectiveNow(snapshot, now))
+				addTodayMainWeather(&rows[0], snapshot.Weather.Data, effectiveNow(snapshot, now))
 			}
 			view.Activities = append(view.Activities, rows...)
 		case config.ActivityTypeMemoryPressure:
