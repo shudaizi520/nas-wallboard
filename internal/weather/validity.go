@@ -144,6 +144,15 @@ func ProjectAt(value model.WeatherStatus, now time.Time) model.WeatherStatus {
 		}
 		value.Components = &copy
 	}
+	if len(value.Warnings) > 0 {
+		active := make([]model.WeatherWarning, 0, len(value.Warnings))
+		for _, warning := range value.Warnings {
+			if warning.ExpiresAt.IsZero() || now.Before(warning.ExpiresAt) {
+				active = append(active, warning)
+			}
+		}
+		value.Warnings = active
+	}
 	if len(value.RainPoints) > 0 {
 		value.RainSummary = rainSummaryAt(value.RainPoints, now)
 		if value.RainSummary == "" && value.Components != nil {
