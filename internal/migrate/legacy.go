@@ -141,12 +141,13 @@ func importIntegrations(cfg config.Config, homeToken string, stage func(string, 
 
 	if cfg.Weather.Enabled {
 		item := persist.Integration{ID: "qweather-main", Type: "qweather", Enabled: true, Config: map[string]any{
-			"api_host":     cfg.Weather.APIHost,
-			"name":         cfg.Weather.Name,
-			"latitude":     strconv.FormatFloat(cfg.Weather.Latitude, 'f', -1, 64),
-			"longitude":    strconv.FormatFloat(cfg.Weather.Longitude, 'f', -1, 64),
-			"units":        cfg.Weather.Units,
-			"call_timeout": cfg.Weather.CallTimeout.String(), "refresh": cfg.Refresh.Weather.String(),
+			"api_host":       cfg.Weather.APIHost,
+			"name":           cfg.Weather.Name,
+			"latitude":       strconv.FormatFloat(cfg.Weather.Latitude, 'f', -1, 64),
+			"longitude":      strconv.FormatFloat(cfg.Weather.Longitude, 'f', -1, 64),
+			"units":          cfg.Weather.Units,
+			"hourly_enabled": cfg.Weather.HourlyEnabled,
+			"call_timeout":   cfg.Weather.CallTimeout.String(), "refresh": cfg.Refresh.Weather.String(),
 		}, SecretRefs: map[string]persist.SecretRef{}}
 		ref, err := stage(item.ID, "api_key", cfg.Weather.APIKey)
 		if err != nil {

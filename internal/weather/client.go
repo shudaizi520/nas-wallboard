@@ -26,6 +26,7 @@ const (
 	rainRefreshInterval     = 10 * time.Minute
 	alertRefreshInterval    = 5 * time.Minute
 	forecastRefreshInterval = time.Hour
+	hourlyRefreshInterval   = 30 * time.Minute
 	minRainSamples          = 3
 	minRainTotalMillimeters = 0.1
 )
@@ -38,7 +39,7 @@ type minutelyPrecipitation struct {
 
 type refreshCache struct {
 	status   model.WeatherStatus
-	failures [4]int
+	failures [5]int
 }
 
 type Client struct {
@@ -77,7 +78,7 @@ func (c *Client) Current(ctx context.Context) (model.WeatherStatus, error) {
 	result.Components = &model.WeatherComponents{}
 	// Legacy callers still fetch all four sources per call. Keep their cadence
 	// and all-or-nothing error contract while supplying the same validity metadata.
-	for _, source := range []struct {
+	sources := []struct {
 		read     func(context.Context, *model.WeatherStatus) error
 		metadata *model.WeatherComponent
 		interval time.Duration
@@ -87,7 +88,17 @@ func (c *Client) Current(ctx context.Context) (model.WeatherStatus, error) {
 		{c.readForecast, &result.Components.Forecast, forecastRefreshInterval, false},
 		{c.readRain, &result.Components.Rain, rainRefreshInterval, true},
 		{c.readAlerts, &result.Components.Alerts, alertRefreshInterval, false},
-	} {
+	}
+	if c.cfg.HourlyEnabled {
+		result.Components.Hourly = &model.WeatherComponent{}
+		sources = append(sources, struct {
+			read     func(context.Context, *model.WeatherStatus) error
+			metadata *model.WeatherComponent
+			interval time.Duration
+			rain     bool
+		}{c.readHourly, result.Components.Hourly, hourlyRefreshInterval, false})
+	}
+	for _, source := range sources {
 		if err := source.read(ctx, &result); err != nil {
 			return model.WeatherStatus{}, err
 		}
@@ -111,6 +122,12 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 	if next.status.Components != nil {
 		components = *next.status.Components
 	}
+	if c.cfg.HourlyEnabled {
+		components.Hourly = &model.WeatherComponent{}
+		if next.status.Components != nil && next.status.Components.Hourly != nil {
+			*components.Hourly = *next.status.Components.Hourly
+		}
+	}
 	next.status.Components = &components
 	var failures []error
 	sources := []struct {
@@ -122,6 +139,13 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 		{&components.Rain, rainRefreshInterval, c.readRain},
 		{&components.Alerts, alertRefreshInterval, c.readAlerts},
 		{&components.Forecast, forecastRefreshInterval, c.readForecast},
+	}
+	if components.Hourly != nil {
+		sources = append(sources, struct {
+			metadata *model.WeatherComponent
+			interval time.Duration
+			read     func(context.Context, *model.WeatherStatus) error
+		}{components.Hourly, hourlyRefreshInterval, c.readHourly})
 	}
 	type result struct {
 		index     int
@@ -180,7 +204,12 @@ func (c *Client) Refresh(ctx context.Context) (model.WeatherStatus, error) {
 	// A caller must not be able to mutate the cached component timestamps.
 	output := next.status
 	output.RainPoints = append([]model.RainPoint(nil), next.status.RainPoints...)
+	output.Hourly = append([]model.WeatherHour(nil), next.status.Hourly...)
 	copy := components
+	if components.Hourly != nil {
+		hourly := *components.Hourly
+		copy.Hourly = &hourly
+	}
 	output.Components = &copy
 	return ProjectAt(output, now), errors.Join(failures...)
 }
@@ -217,6 +246,8 @@ func applyComponent(destination *model.WeatherStatus, value model.WeatherStatus,
 	case 3:
 		destination.Forecasts = value.Forecasts
 		destination.TodayForecast = value.TodayForecast
+	case 4:
+		destination.Hourly = value.Hourly
 	}
 }
 
@@ -233,6 +264,9 @@ func (c *Client) RefreshedAt() time.Time {
 			latest = stamp
 		}
 	}
+	if components.Hourly != nil && components.Hourly.UpdatedAt.After(latest) {
+		latest = components.Hourly.UpdatedAt
+	}
 	return latest
 }
 
@@ -246,7 +280,7 @@ func (c *Client) RetryAfter() time.Duration {
 	}
 	now := c.now()
 	var earliest time.Duration
-	for index, source := range []struct {
+	sources := []struct {
 		metadata model.WeatherComponent
 		interval time.Duration
 	}{
@@ -254,7 +288,14 @@ func (c *Client) RetryAfter() time.Duration {
 		{components.Rain, rainRefreshInterval},
 		{components.Alerts, alertRefreshInterval},
 		{components.Forecast, forecastRefreshInterval},
-	} {
+	}
+	if components.Hourly != nil {
+		sources = append(sources, struct {
+			metadata model.WeatherComponent
+			interval time.Duration
+		}{*components.Hourly, hourlyRefreshInterval})
+	}
+	for index, source := range sources {
 		failures := c.cache.failures[index]
 		if source.metadata.Error == "" || failures < 1 || failures > 3 {
 			continue
@@ -354,8 +395,12 @@ func (c *Client) readForecast(ctx context.Context, result *model.WeatherStatus) 
 	}
 	var daily struct {
 		Days []struct {
-			Start          string  `json:"forecastStartTime"`
-			End            string  `json:"forecastEndTime"`
+			Start string `json:"forecastStartTime"`
+			End   string `json:"forecastEndTime"`
+			Astro struct {
+				Sunrise string `json:"sunrise"`
+				Sunset  string `json:"sunset"`
+			} `json:"astro"`
 			Daytime        period  `json:"daytime"`
 			Nighttime      period  `json:"nighttime"`
 			UVIndex        float64 `json:"uvIndexMax"`
@@ -395,6 +440,7 @@ func (c *Client) readForecast(ctx context.Context, result *model.WeatherStatus) 
 			NightCondition:       strings.TrimSpace(day.Nighttime.Condition.Text), NightConditionCode: strings.TrimSpace(day.Nighttime.Condition.Code),
 			UVIndex: day.UVIndex,
 		}
+		forecast.Sunrise, forecast.Sunset = dailySunTimes(start, end, day.Astro.Sunrise, day.Astro.Sunset)
 		if probability := day.Daytime.Precipitation.Probability; probability != nil && *probability >= 0 && *probability <= 1 {
 			forecast.PrecipitationProbability, forecast.PrecipitationMissing = *probability, false
 		}

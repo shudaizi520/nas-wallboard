@@ -45,6 +45,23 @@ func currentDaily(start, end, now time.Time) bool {
 	return start.Year() == local.Year() && start.YearDay() == local.YearDay()
 }
 
+// Astronomy is optional. Invalid or polar-day/missing events must not invalidate
+// otherwise useful weather or invent a fixed sunrise/sunset for the location.
+func dailySunTimes(start, end time.Time, sunrise, sunset string) (time.Time, time.Time) {
+	rise, riseErr := parseWeatherTime(sunrise)
+	set, setErr := parseWeatherTime(sunset)
+	if riseErr != nil || setErr != nil || !rise.Before(set) || rise.Before(start) || !set.Before(end) {
+		return time.Time{}, time.Time{}
+	}
+	for _, stamp := range []time.Time{rise, set} {
+		local := stamp.In(start.Location())
+		if local.Year() != start.Year() || local.YearDay() != start.YearDay() {
+			return time.Time{}, time.Time{}
+		}
+	}
+	return rise, set
+}
+
 func parseRainPoints(raw []minutelyPrecipitation, now time.Time) ([]model.RainPoint, error) {
 	if len(raw) == 0 {
 		return nil, errors.New("rain forecast has no samples")
@@ -121,6 +138,10 @@ func rainSummaryAt(points []model.RainPoint, now time.Time) string {
 func ProjectAt(value model.WeatherStatus, now time.Time) model.WeatherStatus {
 	if value.Components != nil {
 		copy := *value.Components
+		if copy.Hourly != nil {
+			hourly := *copy.Hourly
+			copy.Hourly = &hourly
+		}
 		value.Components = &copy
 	}
 	if len(value.RainPoints) > 0 {
@@ -151,6 +172,18 @@ func ProjectAt(value model.WeatherStatus, now time.Time) model.WeatherStatus {
 	}
 	if hadForecast && len(value.Forecasts) == 0 && value.TodayForecast == nil && value.Components != nil {
 		value.Components.Forecast.Stale = true
+	}
+	if len(value.Hourly) > 0 {
+		hours := make([]model.WeatherHour, 0, len(value.Hourly))
+		for _, hour := range value.Hourly {
+			if !hour.At.IsZero() && hour.At.Add(time.Hour).After(now) {
+				hours = append(hours, hour)
+			}
+		}
+		value.Hourly = hours
+		if len(hours) == 0 && value.Components != nil && value.Components.Hourly != nil {
+			value.Components.Hourly.Stale = true
+		}
 	}
 	return value
 }

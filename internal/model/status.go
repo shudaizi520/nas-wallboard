@@ -117,6 +117,7 @@ type WeatherStatus struct {
 	Warnings                []WeatherWarning   `json:"warnings"`
 	Forecasts               []WeatherForecast  `json:"forecasts,omitempty"`
 	TodayForecast           *WeatherForecast   `json:"today_forecast,omitempty"`
+	Hourly                  []WeatherHour      `json:"hourly,omitempty"`
 	Source                  string             `json:"source"`
 	Units                   string             `json:"units"`
 	Components              *WeatherComponents `json:"components,omitempty"`
@@ -133,15 +134,31 @@ type WeatherComponent struct {
 }
 
 type WeatherComponents struct {
-	Current  WeatherComponent `json:"current"`
-	Rain     WeatherComponent `json:"rain"`
-	Alerts   WeatherComponent `json:"alerts"`
-	Forecast WeatherComponent `json:"forecast"`
+	Current  WeatherComponent  `json:"current"`
+	Rain     WeatherComponent  `json:"rain"`
+	Alerts   WeatherComponent  `json:"alerts"`
+	Forecast WeatherComponent  `json:"forecast"`
+	Hourly   *WeatherComponent `json:"hourly,omitempty"`
+}
+
+type WeatherHour struct {
+	At                       time.Time `json:"at"`
+	Condition                string    `json:"condition"`
+	ConditionCode            string    `json:"condition_code"`
+	Temperature              float64   `json:"temperature"`
+	PrecipitationProbability float64   `json:"precipitation_probability"`
+	PrecipitationMissing     bool      `json:"precipitation_missing,omitempty"`
+	PrecipitationAmount      float64   `json:"precipitation_amount,omitempty"`
+	PrecipitationType        string    `json:"precipitation_type,omitempty"`
+	WindScale                int       `json:"wind_scale,omitempty"`
+	WindGustMetersPerSecond  float64   `json:"wind_gust_meters_per_second,omitempty"`
 }
 
 type WeatherForecast struct {
 	StartAt                       time.Time `json:"start_at,omitempty"`
 	EndAt                         time.Time `json:"end_at,omitempty"`
+	Sunrise                       time.Time `json:"sunrise,omitempty"`
+	Sunset                        time.Time `json:"sunset,omitempty"`
 	Condition                     string    `json:"condition"`
 	ConditionCode                 string    `json:"condition_code"`
 	TemperatureMin                float64   `json:"temperature_min"`

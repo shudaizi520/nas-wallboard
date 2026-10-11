@@ -223,6 +223,7 @@ func TestBuilderHighlightsSMARTFailureAndWeatherWarning(t *testing.T) {
 	}
 	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", ValueTone: "neutral", Value: "31° · 雷阵雨", Detail: "高温黄色预警\n正在降雨 · 强风7级 · 紫外线10"}
 	view.Activities[0].DetailParts = nil // Independent color contract is covered by weather_colors_test.
+	view.Activities[0].WeatherReminders = nil // Pinning/rotation metadata is covered by reminders_test.
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
 	}

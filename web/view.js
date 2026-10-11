@@ -1,8 +1,9 @@
-const KNOWN_ICONS = new Set(['cpu', 'disk', 'network', 'weather-sunny', 'weather-cloudy', 'weather-rain', 'weather-storm', 'weather-snow', 'weather-fog', 'fan', 'alert', 'app', 'updates', 'download', 'play', 'uptime']);
+const KNOWN_ICONS = new Set(['cpu', 'disk', 'network', 'weather-sunny', 'weather-moon', 'weather-cloudy', 'weather-rain', 'weather-storm', 'weather-snow', 'weather-fog', 'fan', 'alert', 'app', 'updates', 'download', 'play', 'uptime']);
 const KNOWN_TONES = new Set(['neutral', 'active', 'warn', 'bad', 'good']);
 const WARNING_COLORS = new Set(['red', 'orange', 'yellow', 'blue', 'purple', 'black']);
 const detailRenderKeys = new WeakMap();
 const weatherValueKeys = new WeakMap();
+const REMINDER_STATE = Symbol.for('nas-wallboard.weather-reminder-state');
 const METRIC_LABELS = new Map([
   ['cpu', '处理器'],
   ['cpu_temperature', '处理器温度'],
@@ -59,6 +60,31 @@ function normalizeForecastDays(value) {
   }));
 }
 
+function normalizeForecastHours(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.filter(hour => {
+    if (typeof hour?.at !== 'string' || !Number.isFinite(Date.parse(hour.at)) || seen.has(hour.at)
+      || !/^(现在|(?:次日)?(?:[01]?\d|2[0-3])时)$/.test(hour?.label)
+      || typeof hour?.condition !== 'string' || !hour.condition.trim()
+      || !/^-?\d+(?:\.\d+)?°F?$/.test(hour?.temperature)) return false;
+    seen.add(hour.at);
+    return true;
+  }).slice(0, 6).map(hour => ({at: hour.at, label: hour.label, icon: icon(hour.icon), condition: hour.condition, temperature: hour.temperature, rain: text(hour.rain)}));
+}
+
+function normalizeWeatherReminders(activity) {
+  const reminders = activity?.weather_reminders;
+  if (!Array.isArray(reminders) || !reminders.length
+    || !reminders.every(m => typeof m?.text === 'string' && m.text.trim() && typeof m.pinned === 'boolean')
+    || reminders.map(m => m.text).join('\n') !== text(activity.detail)) return undefined;
+  return reminders.map(m => ({text: m.text, pinned: m.pinned,
+    ...(Array.isArray(m.detail_parts) && m.detail_parts.length && m.detail_parts.every(p => typeof p?.text === 'string')
+      && m.detail_parts.map(p => p.text).join('') === m.text
+      ? {detailParts: m.detail_parts.map(p => ({text: p.text, color: WARNING_COLORS.has(p.color) ? p.color : ''}))} : {}),
+  }));
+}
+
 function forecastTemperature(value) {
   const match = typeof value === 'string' && value.match(/^(-?\d+(?:\.\d+)?)°(F?)$/);
   if (!match || !Number.isFinite(Number(match[1]))) return null;
@@ -110,6 +136,8 @@ export function normalizeDashboard(raw = {}) {
     const id = text(activity?.id) || `activity:${index}`;
     const download = id === 'downloads';
     const forecastDays = id === 'weather' ? normalizeForecastDays(activity?.forecast_days) : [];
+    const forecastHours = id === 'weather' ? normalizeForecastHours(activity?.forecast_hours) : [];
+    const weatherReminders = id === 'weather' ? normalizeWeatherReminders(activity) : undefined;
     return {
       id,
       icon: icon(activity?.icon),
@@ -117,6 +145,8 @@ export function normalizeDashboard(raw = {}) {
       value: text(activity?.value),
       detail: download ? '' : text(activity?.detail),
       ...(forecastDays.length ? {forecastDays} : {}),
+      ...(forecastHours.length ? {forecastHours} : {}),
+      ...(weatherReminders ? {weatherReminders} : {}),
       ...(KNOWN_TONES.has(activity?.value_tone) ? {valueTone: activity.value_tone} : {}),
       ...(id === 'weather' && Array.isArray(activity?.detail_parts) && activity.detail_parts.length > 0
         && activity.detail_parts.every((part) => typeof part?.text === 'string')
@@ -168,6 +198,63 @@ function setActivityDetail(node, activity) {
   detailRenderKeys.set(node, key);
 }
 
+function stopWeatherReminders(node) {
+  const state = node?.[REMINDER_STATE];
+  if (!state) return;
+  if (state.timer !== null) node.ownerDocument.defaultView.clearInterval(state.timer);
+  delete node[REMINDER_STATE];
+}
+
+function reminderElement(document, reminder) {
+  const span = document.createElement('span');
+  span.className = 'weather-reminder';
+  setActivityDetail(span, {detail: reminder.text, detailParts: reminder.detailParts});
+  return span;
+}
+
+function setWeatherReminders(node, activity) {
+  const reminders = activity.weatherReminders;
+  if (!reminders) {
+    if (node[REMINDER_STATE] || node.classList.contains('weather-reminders')) {
+      stopWeatherReminders(node); detailRenderKeys.delete(node);
+      node.classList.remove('weather-reminders'); node.removeAttribute('aria-live');
+    }
+    setActivityDetail(node, activity);
+    return;
+  }
+  const key = JSON.stringify(reminders), previous = node[REMINDER_STATE];
+  if (previous?.key === key) return;
+  const previousText = previous?.ordinary[previous.index]?.text;
+  stopWeatherReminders(node);
+  detailRenderKeys.delete(node);
+  node.classList.add('weather-reminders'); node.setAttribute('aria-live', 'off');
+  const document = node.ownerDocument, fragment = document.createDocumentFragment();
+  for (const reminder of reminders.filter(m => m.pinned)) {
+    const fixed = reminderElement(document, reminder);
+    fixed.classList.add('weather-reminder-fixed'); fixed.setAttribute('aria-live', 'polite');
+    fragment.append(fixed);
+  }
+  const ordinary = reminders.filter(m => !m.pinned);
+  const carousel = document.createElement('span'); carousel.className = 'weather-reminder-carousel';
+  carousel.hidden = !ordinary.length;
+  carousel.setAttribute('role', 'group'); carousel.setAttribute('aria-label', '天气提醒');
+  const spans = ordinary.map(m => reminderElement(document, m)); carousel.append(...spans); fragment.append(carousel);
+  node.replaceChildren(fragment);
+  const state = {key, ordinary, index: Math.max(0, ordinary.findIndex(m => m.text === previousText)), timer: null};
+  const display = () => spans.forEach((span, index) => {
+    span.classList.toggle('is-current', index === state.index);
+    span.setAttribute('aria-hidden', String(index !== state.index));
+  });
+  node[REMINDER_STATE] = state;
+  display();
+  if (ordinary.length > 1) state.timer = document.defaultView.setInterval(() => {
+    if (!node.isConnected) { stopWeatherReminders(node); return; }
+    if (document.visibilityState === 'hidden') return;
+    state.index = (state.index + 1) % ordinary.length;
+    display();
+  }, 6000);
+}
+
 export function reconcile(container, items, create, update) {
   if (!container) return;
   const existing = new Map([...container.children].map((node) => [node.dataset.key, node]));
@@ -196,7 +283,7 @@ function createMetric(document) {
 function createActivityRow(document) {
   const row = document.createElement('article');
   row.className = 'activity-row';
-  row.innerHTML = '<span class="activity-icon" aria-hidden="true"><svg><use data-field="icon"></use></svg></span><div class="activity-copy"><div class="activity-line"><strong data-field="title"></strong><span data-field="value"></span></div><p data-field="detail"></p><div class="activity-progress-list" data-list="progress" hidden></div></div><i class="activity-signal" aria-hidden="true"></i><div class="weather-strip" data-list="forecast" aria-label="每日天气预报" hidden></div><p class="weather-day-detail" aria-live="polite" hidden></p>';
+  row.innerHTML = '<span class="activity-icon" aria-hidden="true"><svg><use data-field="icon"></use></svg></span><div class="activity-copy"><div class="activity-line"><strong data-field="title"></strong><span data-field="value"></span></div><p data-field="detail"></p><div class="activity-progress-list" data-list="progress" hidden></div></div><i class="activity-signal" aria-hidden="true"></i><div class="weather-hourly" data-list="hourly" aria-label="未来十二小时关键时段，时间间隔不固定" hidden></div><div class="weather-strip" data-list="forecast" aria-label="每日天气预报" hidden></div><p class="weather-day-detail" aria-live="polite" hidden></p>';
   return row;
 }
 
@@ -219,6 +306,32 @@ function createForecastDay(document) {
   button.type = 'button'; button.className = 'weather-day';
   button.innerHTML = '<small data-field="day"></small><span class="weather-day-icon"><svg aria-hidden="true"><use data-field="icon"></use></svg><small data-field="rain" hidden></small></span><span data-field="low"></span><span class="weather-range-track" aria-hidden="true"><i class="weather-range"></i></span><b data-field="high"></b>';
   return button;
+}
+
+function renderHourly(row, hours = []) {
+  const strip = row.querySelector('[data-list="hourly"]');
+  strip.hidden = !hours.length;
+  strip.style.setProperty('--hour-count', String(hours.length || 6));
+  strip.classList.toggle('weather-hourly--next-day', hours.some(hour => hour.label.startsWith('次日')));
+  reconcile(strip, hours.map(hour => ({...hour, id: hour.at})), document => {
+    const node = document.createElement('div'); node.className = 'weather-hour';
+    node.innerHTML = '<small data-field="hour"></small><svg aria-hidden="true"><use data-field="icon"></use></svg><span data-field="temperature"></span><small data-field="rain" hidden></small>';
+    return node;
+  }, (node, hour) => {
+    node.dataset.icon = hour.icon;
+    node.querySelector('[data-field="icon"]').setAttribute('href', `#icon-${hour.icon}`);
+    const label = node.querySelector('[data-field="hour"]');
+    if (label.textContent !== hour.label) {
+      if (hour.label.startsWith('次日')) {
+        const day = label.ownerDocument.createElement('span'); day.className = 'weather-hour-date'; day.textContent = '次日';
+        const time = label.ownerDocument.createElement('span'); time.textContent = hour.label.slice(2);
+        label.replaceChildren(day, time);
+      } else label.textContent = hour.label;
+    }
+    for (const field of ['temperature','rain']) setText(node, `[data-field="${field}"]`, hour[field]);
+    node.querySelector('[data-field="rain"]').hidden = !hour.rain;
+    node.setAttribute('aria-label', `${hour.label}，${hour.condition}，${hour.temperature}${hour.rain ? `，降水概率${hour.rain}` : ''}`);
+  });
 }
 
 function renderForecastDetails(row, days) {
@@ -285,6 +398,7 @@ export function activityVariant(id) {
 
 export function renderDashboard(root, raw) {
   const view = normalizeDashboard(raw);
+  if (!view.activities.some(a => a.id === 'weather')) stopWeatherReminders(root.querySelector('[data-key="weather"] .activity-copy p'));
   const panel = root.querySelector('.glass-panel');
   panel?.style.setProperty('--panel-width', `${view.width}px`);
   setTone(root.querySelector('[data-bind="connection"]'), view.connectionTone);
@@ -338,7 +452,9 @@ export function renderDashboard(root, raw) {
     if (variant === 'weather') setWeatherValue(node.querySelector('[data-field="value"]'), activity);
     else setText(node, '[data-field="value"]', activity.value);
     renderForecast(node, activity.forecastDays, activity.value);
-    setActivityDetail(node.querySelector('[data-field="detail"]'), activity);
+    renderHourly(node, activity.forecastHours);
+    if (variant === 'weather') setWeatherReminders(node.querySelector('[data-field="detail"]'), activity);
+    else setActivityDetail(node.querySelector('[data-field="detail"]'), activity);
     const value = node.querySelector('[data-field="value"]');
     const detail = node.querySelector('[data-field="detail"]');
     if (value) {
@@ -365,6 +481,14 @@ export function renderDashboard(root, raw) {
 }
 
 export function renderFetchError(root) {
+  const detail = root.querySelector('[data-key="weather"] .activity-copy p');
+  if (detail?.[REMINDER_STATE]) {
+    stopWeatherReminders(detail);
+    const carousel = detail.querySelector('.weather-reminder-carousel');
+    if (carousel) carousel.hidden = true;
+    const notice = detail.ownerDocument.createElement('span'); notice.className = 'weather-reminder-fixed'; notice.textContent = '提醒数据过期';
+    detail.append(notice); detail.hidden = false;
+  }
   const connection = root.querySelector('[data-bind="connection"]');
   if (connection) connection.dataset.tone = 'bad';
   const freshness = root.querySelector('[data-bind="freshness"]');

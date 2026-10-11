@@ -145,7 +145,7 @@ func buildCollector(options RuntimeOptions, id string, metadata integration.Meta
 			return nil, errors.New("invalid weather coordinates")
 		}
 		apiHost := stringSetting(settings, "api_host", secretString(secrets, "api_host"))
-		client, err := weather.New(config.WeatherConfig{Enabled: true, APIHost: apiHost, APIKey: secretString(secrets, "api_key"), Name: stringSetting(settings, "name", "天气"), Latitude: latitude, Longitude: longitude, Units: stringSetting(settings, "units", "metric"), CallTimeout: config.Duration{Duration: timeout}}, httpClient)
+		client, err := weather.New(config.WeatherConfig{Enabled: true, HourlyEnabled: hourlyEnabled(settings), APIHost: apiHost, APIKey: secretString(secrets, "api_key"), Name: stringSetting(settings, "name", "天气"), Latitude: latitude, Longitude: longitude, Units: stringSetting(settings, "units", "metric"), CallTimeout: config.Duration{Duration: timeout}}, httpClient)
 		if err != nil {
 			return nil, err
 		}

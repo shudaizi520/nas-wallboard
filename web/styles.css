@@ -423,6 +423,10 @@ body {
   color: rgb(171, 202, 232);
 }
 
+.activity-row--weather[data-icon="weather-moon"] .activity-icon {
+  color: rgb(202, 216, 241);
+}
+
 .activity-row--weather[data-icon="weather-cloudy"] .activity-icon svg {
   filter: drop-shadow(0 0.18rem 0.35rem rgba(90, 148, 208, 0.2));
   animation: weather-cloud-float 4.8s ease-in-out infinite;
@@ -548,6 +552,11 @@ body {
 
 .activity-row--weather .activity-signal { display: none; }
 
+.weather-reminder-fixed { display: block; }
+.weather-reminder-carousel { display: grid; min-width: 0; }
+.weather-reminder-carousel > .weather-reminder { grid-area: 1 / 1; visibility: hidden; }
+.weather-reminder-carousel > .weather-reminder.is-current { visibility: visible; }
+
 .activity-row.activity-row--weather .activity-line span[data-tone="neutral"] { color: var(--panel-copy); }
 .activity-row--weather [data-warning-color="red"] { color: var(--bad); }
 .activity-row--weather [data-warning-color="orange"] { color: #ffad55; }
@@ -615,7 +624,7 @@ body {
 
 .activity-row.activity-row--weather-current {
   grid-template-columns: 1.75rem minmax(0, 0.9fr) minmax(0, 1.1fr);
-  row-gap: 0.55rem;
+  row-gap: 0.25rem;
   padding-top: 0.3rem;
   padding-bottom: 0;
 }
@@ -630,13 +639,46 @@ body {
 .weather-temperature { font-size: 1.75rem; font-weight: 500; line-height: 1.2; white-space: nowrap; }
 .weather-condition { font-size: 0.9rem; line-height: 1.4; }
 
+.weather-hourly {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(var(--hour-count, 6), minmax(0, 1fr));
+  align-items: start;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.3rem 0 0.1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+}
+
+.weather-hour {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 0.125rem;
+  min-width: 0;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.weather-hour [data-field="hour"] { color: var(--text); font-size: 0.75rem; line-height: 1.2; white-space: nowrap; }
+.weather-hourly--next-day .weather-hour [data-field="hour"] { display: grid; align-content: end; justify-items: center; min-height: 2.4em; }
+.weather-hour-date { color: var(--muted); }
+.weather-hour [data-field="temperature"] { font-size: 0.85rem; font-weight: 500; white-space: nowrap; }
+.weather-hour [data-field="rain"] { color: var(--active); font-size: 0.7rem; line-height: 1.15; white-space: nowrap; }
+.weather-hour svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: rgb(171, 202, 232); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.weather-hour[data-icon="weather-sunny"] svg { color: rgb(255, 204, 76); stroke: currentColor; }
+.weather-hour[data-icon="weather-moon"] svg { stroke: rgb(202, 216, 241); }
+.weather-hour[data-icon="weather-rain"] svg { stroke: rgb(103, 211, 249); }
+.weather-hour[data-icon="weather-storm"] svg { stroke: rgb(158, 169, 255); }
+
 .weather-strip {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
   min-width: 0;
-  margin-top: 0.1rem;
+  margin-top: 0;
   padding-top: 0.25rem;
   border-top: 1px solid rgba(255, 255, 255, 0.075);
 }
@@ -933,6 +975,8 @@ html.desktop-mode .glass-panel {
   position: relative;
   inset: auto;
   width: var(--panel-width, 560px);
+  /* The widget's narrow viewport must not inherit mobile bottom padding. */
+  padding-bottom: 0.25rem;
   background:
     linear-gradient(135deg, rgba(19, 31, 55, 0.94), rgba(7, 16, 31, 0.9)),
     linear-gradient(115deg, rgba(118, 208, 246, 0.04), transparent 44%);
