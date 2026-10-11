@@ -151,7 +151,8 @@ func addHourlyWeather(activity *Activity, module model.Module[model.WeatherStatu
 	sort.Ints(indexes)
 	for _, i := range indexes {
 		hour := hours[i]
-		list = append(list, WeatherHour{At: hour.At.Format(time.RFC3339), Label: hourLabel(hour.At, now), Icon: weatherIconAt(hour.ConditionCode, weather, hour.At), Condition: hour.Condition, Temperature: weatherTemperature(hour.Temperature, weather.Units), Rain: forecastProbability(hour.PrecipitationProbability, hour.PrecipitationMissing)})
+		icon, condition := hourlyPresentation(hour, weather)
+		list = append(list, WeatherHour{At: hour.At.Format(time.RFC3339), Label: hourLabel(hour.At, now), Icon: icon, Condition: condition, Temperature: weatherTemperature(hour.Temperature, weather.Units), Rain: forecastProbability(hour.PrecipitationProbability, hour.PrecipitationMissing)})
 	}
 	if len(list) > 0 {
 		activity.ForecastHours = &list
@@ -178,7 +179,12 @@ func hourlyEvent(hour model.WeatherHour) string {
 	if code >= 400 && code <= 499 {
 		return "雪"
 	}
-	if code >= 300 && code <= 399 || hour.PrecipitationAmount > 0 || !hour.PrecipitationMissing && !invalidNumber(hour.PrecipitationProbability) && hour.PrecipitationProbability >= 0.3 && hour.PrecipitationProbability <= 1 {
+	// Explicit precipitation phenomena take priority over a conflicting type;
+	// never turn a stated thunderstorm into a generic snow symbol/reminder.
+	if code >= 300 && code <= 399 {
+		return "雨"
+	}
+	if !invalidNumber(hour.PrecipitationAmount) && hour.PrecipitationAmount > 0 || !hour.PrecipitationMissing && !invalidNumber(hour.PrecipitationProbability) && hour.PrecipitationProbability >= 0.3 && hour.PrecipitationProbability <= 1 {
 		if hour.PrecipitationType == "snow" {
 			return "雪"
 		}
@@ -188,6 +194,25 @@ func hourlyEvent(hour model.WeatherHour) string {
 		return "强风"
 	}
 	return ""
+}
+
+// The same precipitation evidence drives selection, reminders and icons.
+// Preserve explicit phenomena (especially thunderstorms), source probability
+// and current observations. Supplement a dry condition's description only
+// when amount/probability establishes a future precipitation risk.
+func hourlyPresentation(hour model.WeatherHour, weather model.WeatherStatus) (string, string) {
+	icon, condition := weatherIconAt(hour.ConditionCode, weather, hour.At), hour.Condition
+	switch hourlyEvent(hour) {
+	case "雨":
+		if icon != "weather-rain" && icon != "weather-storm" {
+			return "weather-rain", condition + " · 可能有雨"
+		}
+	case "雪":
+		if icon != "weather-snow" {
+			return "weather-snow", condition + " · 可能有雪"
+		}
+	}
+	return icon, condition
 }
 
 func hourlyWind(hour model.WeatherHour) bool {
