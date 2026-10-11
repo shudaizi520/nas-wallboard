@@ -4,7 +4,7 @@ import {join} from 'node:path';
 
 const root=new URL('../..',import.meta.url).pathname;
 const fixture=JSON.parse(await readFile(join(root,'tests/e2e/fixture.json'),'utf8'));
-const hours=['现在','14时','16时','17时','18时','19时'].map((label,i)=>({at:`2026-10-11T${[12,14,16,17,18,19][i]}:00:00+08:00`,label,icon:i<4?'weather-sunny':'weather-rain',condition:i<4?'晴':'小雨',temperature:i<4?'32°':'28°',rain:i<4?'':'65%'}));
+const hours=[14,16,17,18,19,20].map(hour=>({at:`2026-10-11T${hour}:00:00+08:00`,label:`${hour}时`,icon:hour===18||hour===19?'weather-rain':'weather-sunny',condition:hour===18||hour===19?'小雨':'晴',temperature:hour===18||hour===19?'28°':'30°',rain:hour===18||hour===19?'65%':''}));
 const days=Array.from({length:5},(_,i)=>({date:`2026-10-${11+i}`,label:['今天','周一','周二','周三','周四'][i],icon:'weather-cloudy',condition:'多云',low:'24°',high:'32°',rain:'',detail:'白天多云'}));
 
 for(const width of [300,360])test(`fixed hourly strip fits ${width}px and retains daily fonts and warning text`,async({page})=>{
@@ -23,8 +23,9 @@ for(const width of [300,360])test(`fixed hourly strip fits ${width}px and retain
   expect(geometry.display).toBe('grid'); expect(geometry.overflow).toBe(false); expect(geometry.height).toBeLessThanOrEqual(85);
   for(const [i,h] of geometry.rows.entries()) {expect(h.icon.width).toBeLessThanOrEqual(21);expect(h.timeSize).toBe('12px');expect(h.overflow).toBe(false);expect(h.box.top).toBeCloseTo(geometry.rows[0].box.top,1);if(i)expect(h.box.left).toBeGreaterThanOrEqual(geometry.rows[i-1].box.right);}
   await expect(strip.locator('button')).toHaveCount(0);
-  await expect(strip.locator('[data-field="hour"]')).toHaveText(['现在','14时','16时','17时','18时','19时']);
-  await expect(strip.locator('[data-field="rain"]').last()).toHaveText('65%');
+  await expect(strip.locator('[data-field="hour"]')).toHaveText(['14时','16时','17时','18时','19时','20时']);
+  await expect(strip).not.toContainText('现在');
+  await expect(strip.locator('[data-field="rain"]').nth(4)).toHaveText('65%');
   const daily=await row.locator('.weather-day').evaluateAll(nodes=>nodes.map(n=>({height:n.getBoundingClientRect().height,font:getComputedStyle(n.querySelector('[data-field="day"]')).fontSize})));
   for(const d of daily){expect(d.height).toBeLessThanOrEqual(42.5);expect(d.font).toBe('12px');}
   const warning={...dashboard,activities:dashboard.activities.map(a=>a.id==='weather'?{...a,detail:'暴雨橙色预警\n约半小时后可能有雨\n18–19时可能有雨',detail_parts:[{text:'暴雨橙色预警',color:'orange'},{text:'\n约半小时后可能有雨\n18–19时可能有雨'}]}:a)};
@@ -38,7 +39,7 @@ for(const width of [300,360])test(`fixed hourly strip fits ${width}px and retain
 });
 
 for(const width of [300,360])for(const hasRain of [false,true])test(`cross-midnight hours at ${width}px stay single-line ${hasRain?'with':'without'} probability`,async({page})=>{
-  const midnight=hours.map((h,i)=>({...h,at:`2026-10-${i?12:11}T${i?String((i-1)*2).padStart(2,'0'):22}:00:00+08:00`,label:i?`次日${(i-1)*2}时`:'现在',rain:i&&hasRain?'65%':''}));
+  const midnight=hours.map((h,i)=>({...h,at:`2026-10-12T${String(i*2).padStart(2,'0')}:00:00+08:00`,label:`次日${i*2}时`,rain:hasRain?'65%':''}));
   const dashboard={...fixture,width,activities:fixture.activities.map(a=>a.id==='weather'?{...a,detail:'次日0时可能有雨',forecast_hours:midnight,forecast_days:days}:a)};
   await page.route('http://wallboard.test/**',async route=>{
     const path=new URL(route.request().url()).pathname;
@@ -49,12 +50,12 @@ for(const width of [300,360])for(const hasRain of [false,true])test(`cross-midni
   });
   await page.goto('http://wallboard.test/?desktop=1');
   const strip=page.locator('[data-key="weather"] .weather-hourly');
-  await expect(strip.locator('[data-field="hour"]')).toHaveText(['现在','0时','2时','4时','6时','8时']);
+  await expect(strip.locator('[data-field="hour"]')).toHaveText(['0时','2时','4时','6时','8时','10时']);
   await expect(strip).not.toContainText('次日');
-  await expect(strip.locator('.weather-hour').nth(1)).toHaveAttribute('aria-label',/^次日0时，/);
-  await expect(strip.locator('.weather-hour').nth(1)).toHaveAttribute('data-key','2026-10-12T00:00:00+08:00');
+  await expect(strip.locator('.weather-hour').first()).toHaveAttribute('aria-label',/^次日0时，/);
+  await expect(strip.locator('.weather-hour').first()).toHaveAttribute('data-key','2026-10-12T00:00:00+08:00');
   await expect(page.locator('[data-key="weather"] [data-field="detail"]').first()).toHaveText('次日0时可能有雨');
-  await expect(strip.locator('[data-field="rain"]:visible')).toHaveCount(hasRain?5:0);
+  await expect(strip.locator('[data-field="rain"]:visible')).toHaveCount(hasRain?6:0);
   const geometry=await strip.evaluate(n=>({overflow:n.scrollWidth>n.clientWidth+1,height:n.getBoundingClientRect().height,slots:[...n.children].map(h=>({overflow:h.scrollWidth>h.clientWidth+1,font:getComputedStyle(h.querySelector('[data-field="hour"]')).fontSize,labelHeight:h.querySelector('[data-field="hour"]').getBoundingClientRect().height,iconWidth:h.querySelector('svg').getBoundingClientRect().width,top:h.querySelector('svg').getBoundingClientRect().top}))}));
   expect(geometry.overflow).toBe(false);expect(geometry.height).toBeLessThanOrEqual(hasRain?82:66);
   for(const slot of geometry.slots){expect(slot.overflow).toBe(false);expect(slot.font).toBe('12px');expect(slot.labelHeight).toBeLessThanOrEqual(14.5);expect(slot.iconWidth).toBe(20);expect(slot.top).toBeCloseTo(geometry.slots[0].top,1);}

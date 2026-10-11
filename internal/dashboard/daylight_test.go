@@ -32,7 +32,7 @@ func TestDaylightIconsUseLocationSunTimesAndBoundaryInstants(t *testing.T) {
 			weather.TodayForecast = &day
 			// The NAS's UTC clock must not be mistaken for the location's date.
 			activity, _ := buildReminderActivity(t, weather, now.UTC())
-			if activity.Icon != tc.want || activity.ForecastHours == nil || (*activity.ForecastHours)[0].Icon != tc.want {
+			if activity.Icon != tc.want || activity.ForecastHours == nil {
 				t.Fatalf("wrong sun boundary/current icon: activity=%s hours=%#v want=%s", activity.Icon, activity.ForecastHours, tc.want)
 			}
 		})
@@ -48,7 +48,7 @@ func TestDaylightIconsKeepCrossMidnightSlotsOnTheirOwnCalendar(t *testing.T) {
 		weather.Hourly[i].Condition, weather.Hourly[i].ConditionCode, weather.Hourly[i].PrecipitationProbability = "晴", "100", 0
 	}
 	activity, _ := buildReminderActivity(t, weather, now.UTC())
-	want := []string{"weather-moon", "weather-moon", "weather-moon", "weather-moon", "weather-moon", "weather-sunny"}
+	want := []string{"weather-moon", "weather-moon", "weather-moon", "weather-moon", "weather-sunny", "weather-sunny"}
 	if activity.ForecastHours == nil || len(*activity.ForecastHours) != len(want) {
 		t.Fatal("hourly data absent")
 	}

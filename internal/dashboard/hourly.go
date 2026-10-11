@@ -55,13 +55,9 @@ func addHourlyWeather(activity *Activity, module model.Module[model.WeatherStatu
 	}
 	hours = unique
 	list := WeatherHourList{}
-	currentGood := weatherComponentAvailable(weather.Components.Current) && !invalidTemperature(weather.Temperature) && strings.TrimSpace(weather.Condition) != ""
-	if currentGood {
-		list = append(list, WeatherHour{At: now.Format(time.RFC3339), Label: "现在", Icon: weatherIconAt(weather.ConditionCode, weather, now), Condition: weather.Condition, Temperature: weatherTemperature(weather.Temperature, weather.Units)})
-	}
 	selected := map[int]bool{}
 	pick := func(index int) {
-		if index >= 0 && index < len(hours) && len(selected)+len(list) < 6 {
+		if index >= 0 && index < len(hours) && len(selected) < 6 {
 			selected[index] = true
 		}
 	}
