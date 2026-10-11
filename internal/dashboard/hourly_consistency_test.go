@@ -49,9 +49,13 @@ func TestHourlyPrecipitationPresentationMatchesReminder(t *testing.T) {
 				t.Fatal("hour strip absent")
 			}
 			found := false
+			if activity.Value != "32° · 晴" || activity.Icon != "weather-sunny" {
+				t.Fatal("future rain replaced the current header observation")
+			}
 			for _, hour := range *activity.ForecastHours {
-				if hour.Label == "现在" && hour.Icon != "weather-sunny" {
-					t.Fatal("future rain replaced the current observation")
+				at, err := time.Parse(time.RFC3339, hour.At)
+				if hour.Label == "现在" || err != nil || !at.After(now) {
+					t.Fatal("current or past observation still occupies a forecast slot")
 				}
 				if hour.Label != "17时" {
 					continue

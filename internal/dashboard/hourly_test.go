@@ -59,20 +59,22 @@ func hourlyDashboard(t *testing.T, now time.Time, wet map[int]string, probabilit
 	return got
 }
 
-func TestHourlyQuietWeatherShowsSpacedHoursAndCurrentObservation(t *testing.T) {
+func TestHourlyQuietWeatherUsesAllSixSlotsForFutureWithoutRepeatingCurrent(t *testing.T) {
 	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.FixedZone("", 8*3600))
 	got := hourlyDashboard(t, now, nil, 0, true, "")
 	hours, _ := got["forecast_hours"].([]any)
 	if len(hours) != 6 {
 		t.Fatalf("hourly strip absent: %#v", got)
 	}
-	want := []string{"现在", "14时", "16时", "18时", "20时", "22时"}
+	want := []string{"14时", "16时", "18时", "20时", "22时", "次日0时"}
 	for i, h := range hours {
-		if h.(map[string]any)["label"] != want[i] {
+		row := h.(map[string]any)
+		at, err := time.Parse(time.RFC3339, row["at"].(string))
+		if row["label"] != want[i] || err != nil || !at.After(now) || at.After(now.Add(12*time.Hour)) || row["temperature"] != "30°" {
 			t.Fatalf("quiet labels: %#v", hours)
 		}
 	}
-	if hours[0].(map[string]any)["temperature"] != "32°" || got["detail"] != "" {
+	if got["value"] != "32° · 晴" || got["icon"] != "weather-sunny" || got["detail"] != "" {
 		t.Fatalf("observation or quiet header changed: %#v", got)
 	}
 }
@@ -89,7 +91,10 @@ func TestHourlySelectsEveningRainBeforeItEntersConsecutiveSixHourWindow(t *testi
 		row := h.(map[string]any)
 		labels[row["label"].(string)] = row
 	}
-	for _, label := range []string{"现在", "17时", "18时", "19时"} {
+	if labels["现在"] != nil {
+		t.Fatalf("current observation still occupies a forecast slot: %#v", hours)
+	}
+	for _, label := range []string{"17时", "18时", "19时"} {
 		if labels[label] == nil {
 			t.Fatalf("important evening time lost: %#v", hours)
 		}
@@ -126,8 +131,28 @@ func TestHourlyCrossMidnightLabelsDistinguishNextDay(t *testing.T) {
 	now := time.Date(2026, 10, 11, 22, 0, 0, 0, time.FixedZone("", 8*3600))
 	got := hourlyDashboard(t, now, nil, 0, true, "")
 	hours, _ := got["forecast_hours"].([]any)
-	if len(hours) != 6 || hours[1].(map[string]any)["label"] != "次日0时" {
+	if len(hours) != 6 || hours[0].(map[string]any)["label"] != "次日0时" {
 		t.Fatalf("midnight ambiguity: %#v", got)
+	}
+}
+
+func TestHourlySparseSamplesDoNotFillMissingForecastsWithCurrentObservation(t *testing.T) {
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	weather := reminderWeather(now)
+	weather.UVIndex = nil
+	weather.Hourly = []model.WeatherHour{
+		{At: now, Condition: "晴", ConditionCode: "100", Temperature: 32},
+		{At: now.Add(time.Hour), Condition: "多云", ConditionCode: "101", Temperature: 31},
+		{At: now.Add(3*time.Hour), Condition: "晴", ConditionCode: "100", Temperature: 30},
+	}
+	activity, _ := buildReminderActivity(t, weather, now)
+	if activity.Value != "32° · 晴" || activity.ForecastHours == nil || len(*activity.ForecastHours) != 2 {
+		t.Fatalf("sparse forecast padded or current header lost: %+v", activity)
+	}
+	for i, hour := range *activity.ForecastHours {
+		if hour.Label != []string{"13时", "15时"}[i] {
+			t.Fatalf("non-future or fabricated forecast: %+v", hour)
+		}
 	}
 }
 
