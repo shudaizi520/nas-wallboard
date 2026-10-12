@@ -10,8 +10,15 @@ import (
 // Reuse the daily forecast's location-specific astronomy. With no trustworthy
 // events retain the generic condition icon instead of guessing from NAS time.
 func weatherIconAt(code string, weather model.WeatherStatus, at time.Time) string {
-	base := weatherIcon(code)
-	if strings.TrimSpace(code) != "100" || weather.Components == nil || !weatherComponentAvailable(weather.Components.Forecast) {
+	return weatherClassIconAt(classifyWeather(code), code, weather, at)
+}
+
+func weatherClassIconAt(class weatherClass, code string, weather model.WeatherStatus, at time.Time) string {
+	base := string(class)
+	if class == weatherClear && (strings.TrimSpace(code) == "150" || strings.TrimSpace(code) == "152") {
+		return "weather-moon"
+	}
+	if class != weatherClear || weather.Components == nil || !weatherComponentAvailable(weather.Components.Forecast) {
 		return base
 	}
 	days := weather.Forecasts

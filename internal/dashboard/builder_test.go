@@ -222,7 +222,7 @@ func TestBuilderHighlightsSMARTFailureAndWeatherWarning(t *testing.T) {
 		t.Fatalf("metrics = %#v", view.Metrics)
 	}
 	wantWeather := Activity{ID: "weather", Icon: "weather-storm", Tone: "bad", ValueTone: "neutral", Value: "31° · 雷阵雨", Detail: "高温黄色预警\n正在降雨 · 强风7级 · 紫外线10"}
-	view.Activities[0].DetailParts = nil // Independent color contract is covered by weather_colors_test.
+	view.Activities[0].DetailParts = nil      // Independent color contract is covered by weather_colors_test.
 	view.Activities[0].WeatherReminders = nil // Pinning/rotation metadata is covered by reminders_test.
 	if len(view.Activities) != 1 || view.Activities[0] != wantWeather {
 		t.Fatalf("activities = %#v, want %#v", view.Activities, wantWeather)
@@ -293,7 +293,7 @@ func TestWeatherActivitiesAppendTwoUnlabelledForecastRows(t *testing.T) {
 		},
 	}})
 	want := []Activity{
-		{ID: "weather", Icon: "weather-cloudy", Tone: "active", ValueTone: "neutral", Value: "29° · 少云", Detail: ""},
+		{ID: "weather", Icon: "weather-sunny", Tone: "active", ValueTone: "neutral", Value: "29° · 少云", Detail: ""},
 		{ID: "weather:forecast:0", Icon: "weather-cloudy", Tone: "neutral", Value: "多云", Detail: "26°–33° · 雨35%"},
 		{ID: "weather:forecast:1", Icon: "weather-rain", Tone: "neutral", Value: "阵雨", Detail: "25°–31° · 雨80%"},
 	}
@@ -371,12 +371,12 @@ func TestWeatherActivityUsesConditionSpecificIcon(t *testing.T) {
 		want string
 	}{
 		{code: "100", text: "晴", want: "weather-sunny"},
-		{code: "104", text: "阴", want: "weather-cloudy"},
+		{code: "104", text: "阴", want: "weather-overcast"},
 		{code: "305", text: "小雨", want: "weather-rain"},
 		{code: "302", text: "雷阵雨", want: "weather-storm"},
 		{code: "400", text: "小雪", want: "weather-snow"},
 		{code: "501", text: "雾", want: "weather-fog"},
-		{code: "999", text: "未知", want: "weather-cloudy"},
+		{code: "999", text: "未知", want: "weather-unknown"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {

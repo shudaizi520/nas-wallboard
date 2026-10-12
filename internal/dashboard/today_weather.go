@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -10,7 +9,8 @@ import (
 )
 
 // Only today's presentation can follow the remaining local-day forecast. Keep
-// the source day/night details, full-day range and daily probability untouched.
+// the source day/night details and full-day range untouched. A remaining-hours
+// summary cannot inherit a probability for a different daily forecast period.
 // No network requests, cache writes or synthetic observations are involved.
 func addTodayMainWeather(activity *Activity, weather model.WeatherStatus, now time.Time) {
 	day := weather.TodayForecast
@@ -30,23 +30,18 @@ func addTodayMainWeather(activity *Activity, weather model.WeatherStatus, now ti
 	// Do not downgrade a more serious daily phenomenon merely because hourly
 	// samples disagree. Short light rain/showers may be summarized separately.
 	protectedRank, protectedIcon, protectedCondition := 0, "", ""
-	for _, period := range []struct{ code, condition string }{{day.ConditionCode, day.Condition}, {day.NightConditionCode, day.NightCondition}} {
-		icon, rank := weatherIcon(period.code), 0
-		switch {
-		case icon == "weather-storm":
-			rank = 3
-		case icon == "weather-snow":
-			rank = 2
-		case icon == "weather-rain" && !briefRainCode(period.code):
-			rank = 1
-		}
+	protectedRain := ""
+	for _, period := range []forecastPeriod{dailyForecastPeriod(*day, false), dailyForecastPeriod(*day, true)} {
+		class, condition := period.presentation()
+		icon, rank := string(class), period.protectionRank()
 		if rank > protectedRank && strings.TrimSpace(period.condition) != "" {
-			protectedRank, protectedIcon, protectedCondition = rank, icon, period.condition
+			protectedRank, protectedIcon, protectedCondition = rank, icon, condition
+			protectedRain = forecastProbabilityBadge(period.probability, period.probabilityMissing)
 		}
 	}
 	if protectedRank > 0 {
 		row := &(*activity.ForecastDays)[index]
-		row.Icon, row.Condition = protectedIcon, protectedCondition
+		row.Icon, row.Condition, row.Rain = protectedIcon, protectedCondition, protectedRain
 	}
 	if weather.Components == nil || weather.Components.Hourly == nil {
 		return
@@ -64,9 +59,7 @@ func addTodayMainWeather(activity *Activity, weather model.WeatherStatus, now ti
 		if hour.At.Before(currentHour) || !hour.At.Before(day.EndAt) || hour.At.Before(day.StartAt) {
 			continue
 		}
-		code, err := strconv.Atoi(strings.TrimSpace(hour.ConditionCode))
-		known := code >= 100 && code <= 104 || code >= 150 && code <= 153 || code >= 300 && code <= 499 || code >= 500 && code <= 515 || code == 900 || code == 901
-		if err != nil || !known || strings.TrimSpace(hour.Condition) == "" || invalidTemperature(hour.Temperature) {
+		if hourlyWeatherClass(hour) == weatherUnknown || strings.TrimSpace(hour.Condition) == "" || invalidTemperature(hour.Temperature) {
 			return
 		}
 		hours = append(hours, hour)
@@ -90,25 +83,16 @@ func addTodayMainWeather(activity *Activity, weather model.WeatherStatus, now ti
 	wet, streak, longest := 0, 0, 0
 	wetHour := model.WeatherHour{}
 	riskIcon, riskCondition := protectedIcon, protectedCondition
+	riskRank := protectedRank
 	riskFromHourly := false
 	for _, hour := range hours {
 		icon, condition := hourlyPresentation(hour, weather)
-		switch icon {
-		case "weather-storm":
-			riskIcon, riskCondition = icon, condition
+		rank := hourlyProtectionRank(hour)
+		if rank > riskRank {
+			riskIcon, riskCondition, riskRank = icon, condition, rank
 			riskFromHourly = true
-		case "weather-snow":
-			if riskIcon != "weather-storm" {
-				riskIcon, riskCondition = icon, condition
-				riskFromHourly = true
-			}
-		case "weather-rain":
-			if (weatherIcon(hour.ConditionCode) == "weather-rain" && !briefRainCode(hour.ConditionCode) || hour.PrecipitationAmount >= 2.5) && riskIcon == "" {
-				riskIcon, riskCondition = icon, condition
-				riskFromHourly = true
-			}
 		}
-		if icon == "weather-rain" || icon == "weather-snow" || icon == "weather-storm" {
+		if isWeatherPrecipitationIcon(icon) {
 			// The existing strip/reminders stop at 12 hours. A later rain spell
 			// must remain represented in today's icon until it can be shown there.
 			if hour.At.After(now.Add(12*time.Hour)) && riskIcon == "" {
@@ -127,13 +111,13 @@ func addTodayMainWeather(activity *Activity, weather model.WeatherStatus, now ti
 		}
 		streak = 0
 		// Daily symbols describe conditions, not a specific day/night hour.
-		icon = weatherIcon(hour.ConditionCode)
+		icon = string(hourlyWeatherClass(hour))
 		if descriptions[icon] == nil {
 			descriptions[icon] = map[string]int{}
 			order = append(order, icon)
 		}
 		counts[icon]++
-		condition = strings.TrimSpace(hour.Condition)
+		condition = strings.TrimSpace(condition)
 		if descriptions[icon][condition] == 0 {
 			descriptionOrder[icon] = append(descriptionOrder[icon], condition)
 		}
@@ -169,6 +153,10 @@ func addTodayMainWeather(activity *Activity, weather model.WeatherStatus, now ti
 	if icon != "" {
 		row := &(*activity.ForecastDays)[index]
 		row.Icon, row.Condition = icon, condition
+		row.Rain = ""
+		if riskIcon != "" && !riskFromHourly {
+			row.Rain = protectedRain
+		}
 		row.Detail += " · " + description + condition + suffix
 	}
 }

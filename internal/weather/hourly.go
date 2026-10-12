@@ -27,8 +27,8 @@ func (c *Client) readHourly(ctx context.Context, result *model.WeatherStatus) er
 			Precipitation struct {
 				Probability *float64 `json:"probability"`
 				Amount      struct {
-					Value float64 `json:"value"`
-					Unit  string  `json:"unit"`
+					Value *float64 `json:"value"`
+					Unit  string   `json:"unit"`
 				} `json:"amount"`
 				Type string `json:"type"`
 			} `json:"precipitation"`
@@ -64,8 +64,8 @@ func (c *Client) readHourly(ctx context.Context, result *model.WeatherStatus) er
 		if p := raw.Precipitation.Probability; p != nil && *p >= 0 && *p <= 1 {
 			hour.PrecipitationProbability, hour.PrecipitationMissing = *p, false
 		}
-		if raw.Precipitation.Amount.Unit == "mm" && raw.Precipitation.Amount.Value >= 0 {
-			hour.PrecipitationAmount = raw.Precipitation.Amount.Value
+		if amount := forecastAmount(raw.Precipitation.Amount.Value, raw.Precipitation.Amount.Unit); amount != nil {
+			hour.PrecipitationAmount = *amount
 		}
 		if raw.Wind.Scale >= 0 && raw.Wind.Scale <= 17 {
 			hour.WindScale = raw.Wind.Scale
@@ -80,4 +80,13 @@ func (c *Client) readHourly(ctx context.Context, result *model.WeatherStatus) er
 	}
 	result.Hourly = hours
 	return nil
+}
+
+// Keep absent/invalid daily amounts absent; hourly guidance only uses positive
+// valid amounts. Neither zero nor missing amount changes a condition code.
+func forecastAmount(value *float64, unit string) *float64 {
+	if unit != "mm" || value == nil || math.IsNaN(*value) || math.IsInf(*value, 0) || *value < 0 {
+		return nil
+	}
+	return value
 }

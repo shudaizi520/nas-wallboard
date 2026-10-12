@@ -166,12 +166,6 @@ func (b *Builder) Build(snapshot model.Snapshot, now time.Time) View {
 				initializeWeatherReminders(&rows[0])
 				addHourlyWeather(&rows[0], snapshot.Weather, effectiveNow(snapshot, now))
 				addTodayMainWeather(&rows[0], snapshot.Weather.Data, effectiveNow(snapshot, now))
-				if days := rows[0].ForecastDays; days != nil {
-					for i := range *days {
-						day := &(*days)[i]
-						day.Rain = quietForecastProbability(day.Rain, day.Icon)
-					}
-				}
 			}
 			view.Activities = append(view.Activities, rows...)
 		case config.ActivityTypeMemoryPressure:
@@ -608,7 +602,7 @@ func weatherActivity(module model.Module[model.WeatherStatus]) (Activity, bool) 
 		}
 	}
 	if currentUnavailable || invalidTemperature(weather.Temperature) || strings.TrimSpace(weather.Condition) == "" {
-		missing := Activity{ID: "weather", Icon: "weather-cloudy", Tone: "bad", Value: "不可用", Detail: "天气暂不可用"}
+		missing := Activity{ID: "weather", Icon: "weather-unknown", Tone: "bad", Value: "不可用", Detail: "天气暂不可用"}
 		if sources := weather.Components; sources != nil && (weatherComponentAvailable(sources.Alerts) || lastKnownWarning) {
 			if summary, warningTone, parts := weatherWarningSummary(weather.Warnings); summary != "" {
 				if lastKnownWarning {
@@ -762,12 +756,13 @@ func weatherActivities(module model.Module[model.WeatherStatus]) []Activity {
 			continue
 		}
 		detail := weatherTemperature(forecast.TemperatureMin, module.Data.Units) + "–" + weatherTemperature(forecast.TemperatureMax, module.Data.Units)
-		if rain := forecastProbability(forecast.PrecipitationProbability, forecast.PrecipitationMissing); rain != "" {
+		class, condition := dailyForecastPeriod(forecast, false).presentation()
+		if rain := forecastProbabilityBadge(forecast.PrecipitationProbability, forecast.PrecipitationMissing); rain != "" {
 			detail += " · 雨" + rain
 		}
 		result = append(result, Activity{
-			ID: "weather:forecast:" + strconv.Itoa(len(result)-1), Icon: weatherIcon(forecast.ConditionCode), Tone: "neutral",
-			Value: strings.TrimSpace(forecast.Condition), Detail: detail,
+			ID: "weather:forecast:" + strconv.Itoa(len(result)-1), Icon: string(class), Tone: "neutral",
+			Value: strings.TrimSpace(condition), Detail: detail,
 		})
 	}
 	return result
@@ -808,15 +803,13 @@ func weatherForecastDays(weather model.WeatherStatus) WeatherDayList {
 		if weather.TodayForecast != nil && date == weather.TodayForecast.StartAt.Format("2006-01-02") {
 			label = "今天"
 		}
-		condition, code := forecast.Condition, forecast.ConditionCode
-		probability, missing := forecast.PrecipitationProbability, forecast.PrecipitationMissing
-		if forecast.NightPrecipitationKnown && !invalidNumber(forecast.NightPrecipitationProbability) && forecast.NightPrecipitationProbability >= 0 && forecast.NightPrecipitationProbability <= 1 && (missing || forecast.NightPrecipitationProbability > probability) {
-			probability, missing = forecast.NightPrecipitationProbability, false
-			if strings.TrimSpace(forecast.NightCondition) != "" {
-				condition, code = forecast.NightCondition, forecast.NightConditionCode
-			}
+		period, night := dailyForecastPeriod(forecast, false), dailyForecastPeriod(forecast, true)
+		nightRisk := strings.TrimSpace(night.condition) != "" && night.protectionRank() >= 2 && night.protectionRank() > period.protectionRank()
+		if nightRisk {
+			period = night
 		}
-		rain := forecastProbability(probability, missing)
+		class, condition := period.presentation()
+		rain := forecastProbabilityBadge(period.probability, period.probabilityMissing)
 		wind, gust, uv := forecast.WindScale, forecast.WindGustMetersPerSecond, forecast.UVIndex
 		hazard := weatherHazardDetail(model.WeatherStatus{WindScale: &wind, WindGustMetersPerSecond: &gust, UVIndex: &uv})
 		badge := ""
@@ -846,7 +839,18 @@ func weatherForecastDays(weather model.WeatherStatus) WeatherDayList {
 		if hazard != "" {
 			detail += " · 预报" + hazard
 		}
-		days = append(days, WeatherDay{Date: date, Label: label, Icon: weatherIcon(code), Condition: condition, High: weatherTemperature(forecast.TemperatureMax, weather.Units), Low: weatherTemperature(forecast.TemperatureMin, weather.Units), Rain: rain, Hazard: badge, Detail: detail})
+		if nightRisk {
+			detail += " · 夜间风险优先展示：" + condition
+		}
+		for _, rainPeriod := range []struct {
+			name   string
+			amount *float64
+		}{{"白天", forecast.PrecipitationAmount}, {"夜间", forecast.NightPrecipitationAmount}} {
+			if rainPeriod.amount != nil && !invalidNumber(*rainPeriod.amount) && *rainPeriod.amount >= 0 {
+				detail += " · " + rainPeriod.name + "预报降水量" + strconv.FormatFloat(*rainPeriod.amount, 'f', -1, 64) + "mm"
+			}
+		}
+		days = append(days, WeatherDay{Date: date, Label: label, Icon: string(class), Condition: condition, High: weatherTemperature(forecast.TemperatureMax, weather.Units), Low: weatherTemperature(forecast.TemperatureMin, weather.Units), Rain: rain, Hazard: badge, Detail: detail})
 	}
 	return days
 }
@@ -1016,28 +1020,10 @@ func nonEmptyStrings(values ...string) []string {
 }
 
 func weatherIcon(code string) string {
-	value, err := strconv.Atoi(strings.TrimSpace(code))
-	if err != nil {
-		return "weather-cloudy"
-	}
-	switch {
-	case value == 150:
+	if code = strings.TrimSpace(code); code == "150" || code == "152" {
 		return "weather-moon"
-	case value == 100 || value == 900:
-		return "weather-sunny"
-	case value >= 101 && value <= 104 || value >= 151 && value <= 153:
-		return "weather-cloudy"
-	case value >= 302 && value <= 304:
-		return "weather-storm"
-	case value >= 300 && value <= 399:
-		return "weather-rain"
-	case value >= 400 && value <= 499:
-		return "weather-snow"
-	case value >= 500 && value <= 515:
-		return "weather-fog"
-	default:
-		return "weather-cloudy"
 	}
+	return string(classifyWeather(code))
 }
 
 func compactRainSummary(value string) string {

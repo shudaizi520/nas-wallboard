@@ -388,6 +388,10 @@ func (c *Client) readForecast(ctx context.Context, result *model.WeatherStatus) 
 		} `json:"condition"`
 		Precipitation struct {
 			Probability *float64 `json:"probability"`
+			Amount      struct {
+				Value *float64 `json:"value"`
+				Unit  string   `json:"unit"`
+			} `json:"amount"`
 		} `json:"precipitation"`
 		Wind struct {
 			Scale int `json:"scale"`
@@ -445,6 +449,8 @@ func (c *Client) readForecast(ctx context.Context, result *model.WeatherStatus) 
 			UVIndex: day.UVIndex,
 		}
 		forecast.Sunrise, forecast.Sunset = dailySunTimes(start, end, day.Astro.Sunrise, day.Astro.Sunset)
+		forecast.PrecipitationAmount = forecastAmount(day.Daytime.Precipitation.Amount.Value, day.Daytime.Precipitation.Amount.Unit)
+		forecast.NightPrecipitationAmount = forecastAmount(day.Nighttime.Precipitation.Amount.Value, day.Nighttime.Precipitation.Amount.Unit)
 		if probability := day.Daytime.Precipitation.Probability; probability != nil && *probability >= 0 && *probability <= 1 {
 			forecast.PrecipitationProbability, forecast.PrecipitationMissing = *probability, false
 		}

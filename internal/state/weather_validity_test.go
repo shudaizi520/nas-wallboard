@@ -62,3 +62,24 @@ func TestWeatherRainSamplesAreIsolatedAndExpireAtExactBoundary(t *testing.T) {
 		t.Fatal("rain still fresh at exact expiry boundary")
 	}
 }
+
+func TestWeatherStoreIsolatesOptionalForecastEvidence(t *testing.T) {
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	store := New("test", StaleAfter{Weather: time.Hour}, func() time.Time { return now })
+	var value model.WeatherStatus
+	_ = json.Unmarshal([]byte(`{"enabled":true,"today_forecast":{"start_at":"2026-10-12T00:00:00Z","end_at":"2026-10-13T00:00:00Z","precipitation_amount":0.23,"cloud_cover":0.5,"night_precipitation_amount":0,"night_cloud_cover":0.1},"forecasts":[{"start_at":"2026-10-13T00:00:00Z","end_at":"2026-10-14T00:00:00Z","precipitation_amount":0,"cloud_cover":0.5}],"hourly":[{"at":"2026-10-12T13:00:00Z","cloud_cover":0.5}]}`), &value)
+	store.SetWeather(value, nil)
+	*value.TodayForecast.PrecipitationAmount = 1
+	*value.TodayForecast.NightPrecipitationAmount = 1
+	*value.Forecasts[0].PrecipitationAmount = 1
+	got := store.Snapshot().Weather.Data
+	if *got.TodayForecast.PrecipitationAmount != .23 || *got.TodayForecast.NightPrecipitationAmount != 0 || *got.Forecasts[0].PrecipitationAmount != 0 {
+		t.Fatal("SetWeather retained pointers into the caller's forecast evidence")
+	}
+	*got.TodayForecast.PrecipitationAmount = 1
+	*got.Forecasts[0].PrecipitationAmount = 1
+	again := store.Snapshot().Weather.Data
+	if *again.TodayForecast.PrecipitationAmount != .23 || *again.Forecasts[0].PrecipitationAmount != 0 {
+		t.Fatal("snapshot modified store evidence")
+	}
+}

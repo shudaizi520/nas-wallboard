@@ -16,6 +16,8 @@ func todaySummaryWeather(now time.Time) model.WeatherStatus {
 	weather.Condition, weather.ConditionCode, weather.Temperature = "多云", "101", 33
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	weather.TodayForecast = &model.WeatherForecast{StartAt: start, EndAt: start.AddDate(0, 0, 1), Condition: "小雨", ConditionCode: "305", NightCondition: "晴", NightConditionCode: "100", TemperatureMin: 23.6, TemperatureMax: 33.74, NightPrecipitationKnown: true}
+	amount := .23
+	weather.TodayForecast.PrecipitationAmount = &amount
 	weather.Forecasts = []model.WeatherForecast{{StartAt: start.AddDate(0, 0, 1), EndAt: start.AddDate(0, 0, 2), Condition: "小雨", ConditionCode: "305", TemperatureMin: 25, TemperatureMax: 33, PrecipitationProbability: .5}}
 	weather.Hourly = nil
 	for i := 1; i <= 24; i++ {
@@ -51,7 +53,7 @@ func TestTodayMainWeatherKeepsBriefRainInHoursAndReminders(t *testing.T) {
 	foundHour, foundReminder := false, false
 	for _, hour := range *activity.ForecastHours {
 		if hour.Label == "17时" {
-			foundHour = hour.Icon == "weather-rain" && hour.Rain == "" && strings.Contains(hour.Condition, "可能有雨")
+			foundHour = hour.Icon == "weather-cloudy" && hour.Rain == "" && strings.Contains(hour.Condition, "可能有雨")
 		}
 	}
 	for _, message := range messages {
@@ -76,17 +78,20 @@ func TestTodayMainWeatherRiskAndCoverageBoundaries(t *testing.T) {
 		{"two short rainy hours", func(w *model.WeatherStatus) {
 			for i := 1; i <= 2; i++ {
 				w.Hourly[i].Condition, w.Hourly[i].ConditionCode = "小雨", "305"
+				w.Hourly[i].PrecipitationAmount = .23
 			}
 		}, "weather-cloudy"},
 		{"three consecutive rainy hours", func(w *model.WeatherStatus) {
 			w.TodayForecast.Condition, w.TodayForecast.ConditionCode = "多云", "101"
 			for i := 1; i <= 3; i++ {
 				w.Hourly[i].Condition, w.Hourly[i].ConditionCode = "小雨", "305"
+				w.Hourly[i].PrecipitationAmount = .23
 			}
 		}, "weather-rain"},
 		{"rain in half the remaining hours", func(w *model.WeatherStatus) {
 			w.TodayForecast.Condition, w.TodayForecast.ConditionCode = "晴", "100"
 			for _, i := range []int{0, 2, 4, 6} {
+				w.Hourly[i].Condition, w.Hourly[i].ConditionCode = "小雨", "305"
 				w.Hourly[i].PrecipitationProbability = .65
 			}
 		}, "weather-rain"},
@@ -94,10 +99,11 @@ func TestTodayMainWeatherRiskAndCoverageBoundaries(t *testing.T) {
 		{"isolated heavy rain", func(w *model.WeatherStatus) {
 			w.TodayForecast.Condition, w.TodayForecast.ConditionCode = "晴", "100"
 			w.Hourly[1].Condition, w.Hourly[1].ConditionCode = "大雨", "307"
-		}, "weather-rain"},
+		}, "weather-heavy-rain"},
 		{"substantial amount", func(w *model.WeatherStatus) {
 			w.TodayForecast.Condition, w.TodayForecast.ConditionCode = "晴", "100"
 			w.Hourly[1].PrecipitationAmount = 3
+			w.Hourly[1].Condition, w.Hourly[1].ConditionCode = "小雨", "305"
 		}, "weather-rain"},
 		{"isolated snow", func(w *model.WeatherStatus) { w.Hourly[1].Condition, w.Hourly[1].ConditionCode = "小雪", "400" }, "weather-snow"},
 		{"daily thunderstorm remains conservative", func(w *model.WeatherStatus) {
@@ -105,7 +111,7 @@ func TestTodayMainWeatherRiskAndCoverageBoundaries(t *testing.T) {
 		}, "weather-storm"},
 		{"daily heavy rain remains conservative", func(w *model.WeatherStatus) {
 			w.TodayForecast.Condition, w.TodayForecast.ConditionCode = "大雨", "307"
-		}, "weather-rain"},
+		}, "weather-heavy-rain"},
 		{"stale hourly", func(w *model.WeatherStatus) { w.Components.Hourly.Stale = true }, "weather-rain"},
 		{"hourly error", func(w *model.WeatherStatus) { w.Components.Hourly.Error = "unavailable" }, "weather-rain"},
 		{"expired hourly even without stale flag", func(w *model.WeatherStatus) { w.Components.Hourly.ExpiresAt = now }, "weather-rain"},
@@ -150,14 +156,14 @@ func TestTodayMainWeatherDoesNotKeepAnEndedRainHour(t *testing.T) {
 	}
 }
 
-func TestTodayMainWeatherKeepsFullDayRangeAndProbability(t *testing.T) {
+func TestTodayMainWeatherKeepsFullDayRangeAndSourceProbabilityInDetails(t *testing.T) {
 	now := time.Date(2026, 10, 11, 15, 45, 0, 0, time.FixedZone("weather", 8*3600))
 	w := todaySummaryWeather(now)
 	w.Units = "imperial"
 	w.TodayForecast.PrecipitationProbability = .65
 	activity, _ := buildReminderActivity(t, w, now)
 	today := (*activity.ForecastDays)[0]
-	if today.Icon != "weather-cloudy" || today.Rain != "65%" || today.Low != "74°F" || today.High != "93°F" {
+	if today.Icon != "weather-cloudy" || today.Rain != "" || !strings.Contains(today.Detail, "白天降水65%") || today.Low != "74°F" || today.High != "93°F" {
 		t.Fatalf("summary invented probability or narrowed full-day range: %+v", today)
 	}
 }
@@ -208,6 +214,7 @@ func TestTodayMainWeatherKeepsRainOutsideHourlyStripHorizon(t *testing.T) {
 	w := todaySummaryWeather(now)
 	// A 20:00 shower is beyond the existing 12-hour strip/reminder horizon.
 	w.Hourly[13].Condition, w.Hourly[13].ConditionCode = "小雨", "305"
+	w.Hourly[13].PrecipitationAmount = .23
 	activity, _ := buildReminderActivity(t, w, now)
 	if (*activity.ForecastDays)[0].Icon != "weather-rain" {
 		t.Fatalf("rain risk hidden in both daily and hourly displays: %+v", activity)

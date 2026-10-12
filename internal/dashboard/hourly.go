@@ -67,8 +67,7 @@ func addHourlyWeather(activity *Activity, module model.Module[model.WeatherStatu
 		if windEvent < 0 && hourlyWind(hour) {
 			windEvent = i
 		}
-		kind := hourlyEvent(hour)
-		if event < 0 && (kind == "雨" || kind == "雪") {
+		if kind := hourlyEvent(hour); event < 0 && kind != "" && kind != "强风" {
 			event = i
 		}
 	}
@@ -80,13 +79,7 @@ func addHourlyWeather(activity *Activity, module model.Module[model.WeatherStatu
 		if end > start && sameLocalDate(hours[start].At, hours[end].At) {
 			label = strings.TrimSuffix(label, "时") + "–" + strconv.Itoa(hours[end].At.Hour()) + "时"
 		}
-		suffix := "可能有雨"
-		if kind == "雪" {
-			suffix = "可能有雪"
-		}
-		if kind == "强风" {
-			suffix = "可能有强风"
-		}
+		suffix := "可能有" + kind
 		appendDetail(label+suffix, false)
 	}
 	if event >= 0 {
@@ -95,8 +88,22 @@ func addHourlyWeather(activity *Activity, module model.Module[model.WeatherStatu
 		for end+1 < len(hours) && hours[end+1].At.Sub(hours[end].At) == time.Hour && hourlyEvent(hours[end+1]) == kind {
 			end++
 		}
-		pick(event - 1)
 		pick(event)
+		pick(windEvent)
+		// Reserve space for later escalation before filling ordinary rain context.
+		risks := []int{}
+		for i, hour := range hours {
+			if hourlyProtectionRank(hour) >= 2 && (i == 0 || hourlyWeatherClass(hours[i-1]) != hourlyWeatherClass(hour)) {
+				risks = append(risks, i)
+			}
+		}
+		sort.SliceStable(risks, func(i, j int) bool {
+			return hourlyProtectionRank(hours[risks[i]]) > hourlyProtectionRank(hours[risks[j]])
+		})
+		for _, i := range risks {
+			pick(i)
+		}
+		pick(event - 1)
 		pick(event + 1)
 		pick(end)
 		if kind == "强风" {
@@ -110,7 +117,7 @@ func addHourlyWeather(activity *Activity, module model.Module[model.WeatherStatu
 	nearRainActive := weatherComponentAvailable(weather.Components.Rain) && nearRain != "" && nearRain != "未来2小时无明显降雨" && nearRain != "暂未见明显降雨"
 	for start := 0; start < len(hours); start++ {
 		kind := hourlyEvent(hours[start])
-		if kind != "雨" && kind != "雪" {
+		if kind == "" || kind == "强风" {
 			continue
 		}
 		end := start
@@ -162,7 +169,7 @@ func addHourlyWeather(activity *Activity, module model.Module[model.WeatherStatu
 	for _, i := range indexes {
 		hour := hours[i]
 		icon, condition := hourlyPresentation(hour, weather)
-		list = append(list, WeatherHour{At: hour.At.Format(time.RFC3339), Label: hourLabel(hour.At, now), Icon: icon, Condition: condition, Temperature: weatherTemperature(hour.Temperature, weather.Units), Rain: quietForecastProbability(forecastProbability(hour.PrecipitationProbability, hour.PrecipitationMissing), icon)})
+		list = append(list, WeatherHour{At: hour.At.Format(time.RFC3339), Label: hourLabel(hour.At, now), Icon: icon, Condition: condition, Temperature: weatherTemperature(hour.Temperature, weather.Units), Rain: forecastProbabilityBadge(hour.PrecipitationProbability, hour.PrecipitationMissing)})
 	}
 	if len(list) > 0 {
 		activity.ForecastHours = &list
@@ -183,22 +190,22 @@ func hourLabel(at, now time.Time) string {
 }
 
 func hourlyEvent(hour model.WeatherHour) string {
-	// Presentation icons are not evidence of precipitation (e.g. 901 means
-	// cold, not snow). Keep meteorological event classification independent.
-	code, _ := strconv.Atoi(strings.TrimSpace(hour.ConditionCode))
-	if code >= 400 && code <= 499 {
-		return "雪"
+	if kind := hourlyWeatherClass(hour).precipitation(); kind != "" {
+		return kind
 	}
-	// Explicit precipitation phenomena take priority over a conflicting type;
-	// never turn a stated thunderstorm into a generic snow symbol/reminder.
-	if code >= 300 && code <= 399 {
-		return "雨"
-	}
-	if !invalidNumber(hour.PrecipitationAmount) && hour.PrecipitationAmount > 0 || !hour.PrecipitationMissing && !invalidNumber(hour.PrecipitationProbability) && hour.PrecipitationProbability >= 0.3 && hour.PrecipitationProbability <= 1 {
-		if hour.PrecipitationType == "snow" {
+	// Amount/probability are independent guidance, not replacement condition
+	// codes. Preserve the existing 30% reminder threshold, separate from badges.
+	if !invalidNumber(hour.PrecipitationAmount) && hour.PrecipitationAmount > 0 || !hour.PrecipitationMissing && !invalidNumber(hour.PrecipitationProbability) && hour.PrecipitationProbability >= .30 && hour.PrecipitationProbability <= 1 {
+		switch hour.PrecipitationType {
+		case "snow":
 			return "雪"
+		case "ice":
+			return "冰粒或冻雨"
+		case "mixed":
+			return "混合降水"
+		default:
+			return "雨"
 		}
-		return "雨"
 	}
 	if hourlyWind(hour) {
 		return "强风"
@@ -206,23 +213,14 @@ func hourlyEvent(hour model.WeatherHour) string {
 	return ""
 }
 
-// The same precipitation evidence drives selection, reminders and icons.
-// Preserve explicit phenomena (especially thunderstorms), source probability
-// and current observations. Supplement a dry condition's description only
-// when amount/probability establishes a future precipitation risk.
+// Artwork follows the source code. Independent precipitation guidance can
+// supplement a dry source description without inventing a different icon.
 func hourlyPresentation(hour model.WeatherHour, weather model.WeatherStatus) (string, string) {
-	icon, condition := weatherIconAt(hour.ConditionCode, weather, hour.At), hour.Condition
-	switch hourlyEvent(hour) {
-	case "雨":
-		if icon != "weather-rain" && icon != "weather-storm" {
-			return "weather-rain", condition + " · 可能有雨"
-		}
-	case "雪":
-		if icon != "weather-snow" {
-			return "weather-snow", condition + " · 可能有雪"
-		}
+	class, condition := hourlyForecastPeriod(hour).presentation()
+	if kind := hourlyEvent(hour); class.precipitation() == "" && kind != "" && kind != "强风" {
+		condition += " · 可能有" + kind
 	}
-	return icon, condition
+	return weatherClassIconAt(class, hour.ConditionCode, weather, hour.At), condition
 }
 
 func hourlyWind(hour model.WeatherHour) bool {
