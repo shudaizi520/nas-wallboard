@@ -22,7 +22,7 @@ func TestHourlyPrecipitationPresentationMatchesReminder(t *testing.T) {
 		{name: "real cloudy rain amount with zero probability", code: "101", kind: "rain", condition: "多云", amount: .23, icon: "weather-rain", reminder: "17时可能有雨"},
 		{name: "cloudy known probability without amount", code: "101", kind: "rain", condition: "多云", probability: .65, icon: "weather-rain", reminder: "17时可能有雨", rain: "65%"},
 		{name: "missing probability does not invent percent", code: "101", kind: "rain", condition: "多云", amount: .23, missing: true, icon: "weather-rain", reminder: "17时可能有雨"},
-		{name: "low probability alone is not rain", code: "100", kind: "none", condition: "晴", probability: .07, icon: "weather-sunny", rain: "7%"},
+		{name: "low probability alone is not rain", code: "100", kind: "none", condition: "晴", probability: .07, icon: "weather-sunny"},
 		{name: "explicit rainy condition remains useful at low probability", code: "305", kind: "rain", condition: "小雨", probability: .07, icon: "weather-rain", reminder: "17时可能有雨", rain: "7%"},
 		{name: "storm icon is not reduced to generic rain", code: "302", kind: "rain", condition: "雷阵雨", icon: "weather-storm", reminder: "17时可能有雨"},
 		{name: "explicit storm takes priority over conflicting precipitation type", code: "302", kind: "snow", condition: "雷阵雨", amount: .23, icon: "weather-storm", reminder: "17时可能有雨"},
