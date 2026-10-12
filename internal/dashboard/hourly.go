@@ -126,6 +126,20 @@ func addHourlyWeather(activity *Activity, module model.Module[model.WeatherStatu
 		pick(windEvent)
 		appendDetail(hourLabel(hours[windEvent].At, now)+"可能有强风", false)
 	}
+	for _, pair := range hourlyTurningPairs(hours) {
+		needed := 0
+		for _, index := range pair {
+			if !selected[index] {
+				needed++
+			}
+		}
+		// Retain both sides of a turn, or leave room for a quiet anchor. Never
+		// replace higher-priority rain/snow/wind with half an ordinary pair.
+		if len(selected)+needed <= 6 {
+			pick(pair[0])
+			pick(pair[1])
+		}
+	}
 	// Fill quiet periods with the nearest available even-hour anchors. The
 	// selection itself does not request upstream data or renew cache freshness.
 	for offset := 2; offset <= 12; offset += 2 {
@@ -148,7 +162,7 @@ func addHourlyWeather(activity *Activity, module model.Module[model.WeatherStatu
 	for _, i := range indexes {
 		hour := hours[i]
 		icon, condition := hourlyPresentation(hour, weather)
-		list = append(list, WeatherHour{At: hour.At.Format(time.RFC3339), Label: hourLabel(hour.At, now), Icon: icon, Condition: condition, Temperature: weatherTemperature(hour.Temperature, weather.Units), Rain: forecastProbability(hour.PrecipitationProbability, hour.PrecipitationMissing)})
+		list = append(list, WeatherHour{At: hour.At.Format(time.RFC3339), Label: hourLabel(hour.At, now), Icon: icon, Condition: condition, Temperature: weatherTemperature(hour.Temperature, weather.Units), Rain: quietForecastProbability(forecastProbability(hour.PrecipitationProbability, hour.PrecipitationMissing), icon)})
 	}
 	if len(list) > 0 {
 		activity.ForecastHours = &list

@@ -166,6 +166,12 @@ func (b *Builder) Build(snapshot model.Snapshot, now time.Time) View {
 				initializeWeatherReminders(&rows[0])
 				addHourlyWeather(&rows[0], snapshot.Weather, effectiveNow(snapshot, now))
 				addTodayMainWeather(&rows[0], snapshot.Weather.Data, effectiveNow(snapshot, now))
+				if days := rows[0].ForecastDays; days != nil {
+					for i := range *days {
+						day := &(*days)[i]
+						day.Rain = quietForecastProbability(day.Rain, day.Icon)
+					}
+				}
 			}
 			view.Activities = append(view.Activities, rows...)
 		case config.ActivityTypeMemoryPressure:
@@ -856,12 +862,38 @@ func compactWeatherWarningTitle(value string) (string, bool) {
 		}
 		return "预警已解除", true
 	}
-	if index := strings.LastIndex(title, "发布"); index >= 0 {
-		if summary := strings.TrimSpace(title[index+len("发布"):]); summary != "" {
-			return summary, false
+	index, action := -1, ""
+	for _, candidate := range []string{"发布", "更新"} {
+		if found := strings.LastIndex(title, candidate); found > index {
+			index, action = found, candidate
+		}
+	}
+	if index >= 0 {
+		summary := strings.TrimSpace(title[index+len(action):])
+		if summary != "" {
+			// Only compact updates whose suffix demonstrably retains a hazard.
+			// Generic level-change clauses (including punctuation) keep the full
+			// headline. Unknown hazards are conservatively left unshortened.
+			if action == "发布" || completeUpdatedWarningTitle(summary) {
+				return summary, false
+			}
 		}
 	}
 	return title, false
+}
+
+func completeUpdatedWarningTitle(title string) bool {
+	index := strings.Index(title, "预警")
+	if index < 0 {
+		return false
+	}
+	prefix := title[:index]
+	for _, hazard := range []string{"台风", "暴雨", "暴雪", "雷雨大风", "雷电", "大风", "高温", "寒潮", "沙尘", "冰雹", "霜冻", "大雾", "浓雾", "道路结冰", "干旱", "低温", "冰冻", "龙卷", "森林火险", "地质灾害", "山洪"} {
+		if strings.Contains(prefix, hazard) {
+			return true
+		}
+	}
+	return false
 }
 
 func weatherWarningSummary(warnings []model.WeatherWarning) (string, string, *DetailPartList) {
