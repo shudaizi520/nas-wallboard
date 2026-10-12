@@ -143,7 +143,7 @@ func TestHourlySparseSamplesDoNotFillMissingForecastsWithCurrentObservation(t *t
 	weather.Hourly = []model.WeatherHour{
 		{At: now, Condition: "晴", ConditionCode: "100", Temperature: 32},
 		{At: now.Add(time.Hour), Condition: "多云", ConditionCode: "101", Temperature: 31},
-		{At: now.Add(3*time.Hour), Condition: "晴", ConditionCode: "100", Temperature: 30},
+		{At: now.Add(3 * time.Hour), Condition: "晴", ConditionCode: "100", Temperature: 30},
 	}
 	activity, _ := buildReminderActivity(t, weather, now)
 	if activity.Value != "32° · 晴" || activity.ForecastHours == nil || len(*activity.ForecastHours) != 2 {
@@ -216,7 +216,8 @@ func TestHourlyPrecipitationKindComesFromWeatherData(t *testing.T) {
 		want                    string
 	}{
 		{"901", "none", 0, ""}, {"400", "snow", 0, "雪"},
-		{"305", "rain", 0.07, "雨"}, {"100", "none", 0.07, ""},
+		{"305", "rain", 0.07, "雨"}, {"305", "rain", 0.65, "雨"}, {"100", "none", 0.07, ""},
+		{"101", "rain", 0.20, ""}, {"101", "rain", 0.21, ""}, {"101", "rain", 0.30, "雨"},
 		{"101", "snow", 0.65, "雪"}, {"101", "rain", 0.65, "雨"},
 	} {
 		hour := model.WeatherHour{ConditionCode: tc.code, PrecipitationType: tc.precipitationType, PrecipitationProbability: tc.probability}

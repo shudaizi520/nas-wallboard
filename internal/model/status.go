@@ -165,13 +165,30 @@ type WeatherForecast struct {
 	TemperatureMax                float64   `json:"temperature_max"`
 	PrecipitationProbability      float64   `json:"precipitation_probability"`
 	PrecipitationMissing          bool      `json:"precipitation_missing,omitempty"`
+	PrecipitationAmount           *float64  `json:"precipitation_amount,omitempty"`
 	NightCondition                string    `json:"night_condition,omitempty"`
 	NightConditionCode            string    `json:"night_condition_code,omitempty"`
 	NightPrecipitationProbability float64   `json:"night_precipitation_probability,omitempty"`
 	NightPrecipitationKnown       bool      `json:"night_precipitation_known,omitempty"`
+	NightPrecipitationAmount      *float64  `json:"night_precipitation_amount,omitempty"`
 	WindScale                     int       `json:"wind_scale,omitempty"`
 	WindGustMetersPerSecond       float64   `json:"wind_gust_meters_per_second,omitempty"`
 	UVIndex                       float64   `json:"uv_index,omitempty"`
+}
+
+// Clone isolates optional forecast evidence at cache and display boundaries.
+func (f WeatherForecast) Clone() WeatherForecast {
+	f.PrecipitationAmount = cloneForecastNumber(f.PrecipitationAmount)
+	f.NightPrecipitationAmount = cloneForecastNumber(f.NightPrecipitationAmount)
+	return f
+}
+
+func cloneForecastNumber(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 type RainPoint struct {

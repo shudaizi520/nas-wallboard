@@ -49,11 +49,13 @@ func hourlyDryGroup(hour model.WeatherHour) int {
 	if hourlyEvent(hour) != "" {
 		return 0
 	}
-	switch hour.ConditionCode {
-	case "100", "102", "103", "150", "152", "153":
-		return 1 // Clear/few clouds: ignore small changes and day/night variants.
-	case "101", "104", "151":
-		return 2 // Cloudy/overcast.
+	switch hourlyWeatherClass(hour) {
+	case weatherClear:
+		return 1
+	case weatherCloudy:
+		return 2
+	case weatherOvercast:
+		return 3
 	default:
 		return 0 // Unknown or other phenomena are not evidence of a dry reversal.
 	}

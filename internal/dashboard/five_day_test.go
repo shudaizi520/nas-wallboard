@@ -38,7 +38,7 @@ func TestWeatherProvidesFiveDayStripAndNoFakeDryProbability(t *testing.T) {
 	if len(got.Days) != 5 {
 		t.Fatalf("five-day strip absent: %s", encoded)
 	}
-	if got.Days[0].Label != "今天" || got.Days[0].Rain != "" || got.Days[0].High != "32°" || got.Days[1].Label != "周日" || got.Days[1].Rain != "<1%" || got.Days[2].Rain != "65%" {
+	if got.Days[0].Label != "今天" || got.Days[0].Rain != "" || got.Days[0].High != "32°" || got.Days[1].Label != "周日" || got.Days[1].Rain != "" || got.Days[2].Rain != "65%" {
 		t.Fatalf("misleading forecast strip: %s", encoded)
 	}
 }
@@ -65,7 +65,7 @@ func TestLegacyForecastDoesNotInventProbabilityForMissingSourceData(t *testing.T
 		missing     bool
 		detail      string
 	}{
-		{0, true, "24°–32°"}, {0, false, "24°–32°"}, {0.006, false, "24°–32° · 雨<1%"}, {2, false, "24°–32°"},
+		{0, true, "24°–32°"}, {0, false, "24°–32°"}, {0.006, false, "24°–32°"}, {2, false, "24°–32°"}, {0.65, false, "24°–32° · 雨65%"},
 	} {
 		got := weatherActivities(model.Module[model.WeatherStatus]{Data: model.WeatherStatus{Enabled: true, Condition: "晴", Forecasts: []model.WeatherForecast{{Condition: "晴", TemperatureMin: 24, TemperatureMax: 32, PrecipitationProbability: test.probability, PrecipitationMissing: test.missing}}}})
 		if len(got) != 2 || got[1].Detail != test.detail {
@@ -74,10 +74,10 @@ func TestLegacyForecastDoesNotInventProbabilityForMissingSourceData(t *testing.T
 	}
 }
 
-func TestNightRainStillAppearsWhenDaytimeIsDry(t *testing.T) {
+func TestOrdinaryNightRainStaysInNightDetailNotUnderDayIcon(t *testing.T) {
 	start := time.Date(2026, 10, 12, 0, 0, 0, 0, time.FixedZone("", 8*3600))
 	got := weatherForecastDays(model.WeatherStatus{Forecasts: []model.WeatherForecast{{StartAt: start, EndAt: start.AddDate(0, 0, 1), Condition: "晴", ConditionCode: "100", TemperatureMin: 24, TemperatureMax: 32, NightCondition: "阵雨", NightConditionCode: "300", NightPrecipitationKnown: true, NightPrecipitationProbability: 0.65}}})
-	if len(got) != 1 || got[0].Icon != "weather-rain" || got[0].Rain != "65%" || !strings.Contains(got[0].Detail, "白天晴") || !strings.Contains(got[0].Detail, "夜间降水65%") {
+	if len(got) != 1 || got[0].Icon != "weather-sunny" || got[0].Rain != "" || !strings.Contains(got[0].Detail, "白天晴") || !strings.Contains(got[0].Detail, "夜间阵雨") || !strings.Contains(got[0].Detail, "夜间降水65%") {
 		t.Fatalf("night rain hidden by dry daytime: %#v", got)
 	}
 }

@@ -419,7 +419,7 @@ body {
   animation: weather-sun-turn 20s linear infinite;
 }
 
-.activity-row--weather[data-icon="weather-cloudy"] .activity-icon {
+.activity-row--weather:is([data-icon="weather-cloudy"],[data-icon="weather-overcast"]) .activity-icon {
   color: rgb(171, 202, 232);
 }
 
@@ -427,39 +427,39 @@ body {
   color: rgb(202, 216, 241);
 }
 
-.activity-row--weather[data-icon="weather-cloudy"] .activity-icon svg {
+.activity-row--weather:is([data-icon="weather-cloudy"],[data-icon="weather-overcast"]) .activity-icon svg {
   filter: drop-shadow(0 0.18rem 0.35rem rgba(90, 148, 208, 0.2));
   animation: weather-cloud-float 4.8s ease-in-out infinite;
 }
 
-.activity-row--weather[data-icon="weather-rain"] .activity-icon {
+.activity-row--weather:is([data-icon="weather-rain"],[data-icon="weather-heavy-rain"],[data-icon="weather-freezing-rain"],[data-icon="weather-sleet"]) .activity-icon {
   color: rgb(103, 211, 249);
 }
 
-.activity-row--weather[data-icon="weather-rain"] .activity-icon svg {
+.activity-row--weather:is([data-icon="weather-rain"],[data-icon="weather-heavy-rain"],[data-icon="weather-freezing-rain"],[data-icon="weather-sleet"]) .activity-icon svg {
   filter: drop-shadow(0 0.18rem 0.3rem rgba(66, 170, 226, 0.25));
   animation: weather-rain-fall 1.9s ease-in-out infinite;
 }
 
-.activity-row--weather[data-icon="weather-storm"] .activity-icon {
+.activity-row--weather:is([data-icon="weather-storm"],[data-icon="weather-hail"]) .activity-icon {
   color: rgb(158, 169, 255);
 }
 
-.activity-row--weather[data-icon="weather-storm"] .activity-icon svg {
+.activity-row--weather:is([data-icon="weather-storm"],[data-icon="weather-hail"]) .activity-icon svg {
   filter: drop-shadow(0 0 0.35rem rgba(138, 125, 255, 0.34));
   animation: weather-storm-flash 4.6s ease-in-out infinite;
 }
 
-.activity-row--weather[data-icon="weather-snow"] .activity-icon {
+.activity-row--weather:is([data-icon="weather-snow"],[data-icon="weather-heavy-snow"]) .activity-icon {
   color: rgb(220, 244, 255);
 }
 
-.activity-row--weather[data-icon="weather-snow"] .activity-icon svg {
+.activity-row--weather:is([data-icon="weather-snow"],[data-icon="weather-heavy-snow"]) .activity-icon svg {
   filter: drop-shadow(0 0 0.28rem rgba(161, 224, 255, 0.32));
   animation: weather-snow-drift 4.2s ease-in-out infinite;
 }
 
-.activity-row--weather[data-icon="weather-fog"] .activity-icon {
+.activity-row--weather:is([data-icon="weather-fog"],[data-icon="weather-haze"],[data-icon="weather-dust"]) .activity-icon {
   color: rgb(181, 198, 218);
 }
 
@@ -667,8 +667,8 @@ body {
 .weather-hour svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: rgb(171, 202, 232); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .weather-hour[data-icon="weather-sunny"] svg { color: rgb(255, 204, 76); stroke: currentColor; }
 .weather-hour[data-icon="weather-moon"] svg { stroke: rgb(202, 216, 241); }
-.weather-hour[data-icon="weather-rain"] svg { stroke: rgb(103, 211, 249); }
-.weather-hour[data-icon="weather-storm"] svg { stroke: rgb(158, 169, 255); }
+.weather-hour:is([data-icon="weather-rain"],[data-icon="weather-heavy-rain"],[data-icon="weather-freezing-rain"],[data-icon="weather-sleet"]) svg { stroke: rgb(103, 211, 249); }
+.weather-hour:is([data-icon="weather-storm"],[data-icon="weather-hail"]) svg { stroke: rgb(158, 169, 255); }
 
 .weather-strip {
   grid-column: 1 / -1;
@@ -707,9 +707,9 @@ body {
 .weather-day-icon { display: grid; justify-items: center; gap: 0.075rem; }
 .weather-day svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .weather-day[data-icon="weather-sunny"] svg { color: rgb(255, 204, 76); }
-.weather-day[data-icon="weather-cloudy"] svg { color: rgb(171, 202, 232); }
-.weather-day[data-icon="weather-rain"] svg { color: rgb(103, 211, 249); }
-.weather-day[data-icon="weather-storm"] svg { color: rgb(158, 169, 255); }
+.weather-day:is([data-icon="weather-cloudy"],[data-icon="weather-overcast"]) svg { color: rgb(171, 202, 232); }
+.weather-day:is([data-icon="weather-rain"],[data-icon="weather-heavy-rain"],[data-icon="weather-freezing-rain"],[data-icon="weather-sleet"]) svg { color: rgb(103, 211, 249); }
+.weather-day:is([data-icon="weather-storm"],[data-icon="weather-hail"]) svg { color: rgb(158, 169, 255); }
 .weather-day [data-field="high"], .weather-day [data-field="low"] { font-size: 0.85rem; }
 .weather-day [data-field="high"] { grid-column: 5; font-weight: 500; text-align: right; }
 .weather-day [data-field="low"] { grid-column: 3; text-align: right; }

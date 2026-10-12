@@ -164,18 +164,18 @@ func ProjectAt(value model.WeatherStatus, now time.Time) model.WeatherStatus {
 	if value.TodayForecast != nil && !currentDaily(value.TodayForecast.StartAt, value.TodayForecast.EndAt, now) {
 		value.TodayForecast = nil
 	} else if value.TodayForecast != nil {
-		copy := *value.TodayForecast
+		copy := value.TodayForecast.Clone()
 		value.TodayForecast = &copy
 	}
 	if len(original) > 0 {
 		value.Forecasts = make([]model.WeatherForecast, 0, len(original))
 		for _, forecast := range original {
 			if currentDaily(forecast.StartAt, forecast.EndAt, now) {
-				copy := forecast
+				copy := forecast.Clone()
 				value.TodayForecast = &copy
 			}
 			if forecast.StartAt.IsZero() && forecast.EndAt.IsZero() || futureDaily(forecast.StartAt, forecast.EndAt, now) {
-				value.Forecasts = append(value.Forecasts, forecast)
+				value.Forecasts = append(value.Forecasts, forecast.Clone())
 			}
 		}
 	}

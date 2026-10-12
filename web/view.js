@@ -1,4 +1,4 @@
-const KNOWN_ICONS = new Set(['cpu', 'disk', 'network', 'weather-sunny', 'weather-moon', 'weather-cloudy', 'weather-rain', 'weather-storm', 'weather-snow', 'weather-fog', 'fan', 'alert', 'app', 'updates', 'download', 'play', 'uptime']);
+const KNOWN_ICONS = new Set(['cpu', 'disk', 'network', 'weather-sunny', 'weather-moon', 'weather-cloudy', 'weather-overcast', 'weather-rain', 'weather-heavy-rain', 'weather-storm', 'weather-hail', 'weather-freezing-rain', 'weather-sleet', 'weather-snow', 'weather-heavy-snow', 'weather-fog', 'weather-haze', 'weather-dust', 'weather-hot', 'weather-cold', 'weather-unknown', 'fan', 'alert', 'app', 'updates', 'download', 'play', 'uptime']);
 const KNOWN_TONES = new Set(['neutral', 'active', 'warn', 'bad', 'good']);
 const WARNING_COLORS = new Set(['red', 'orange', 'yellow', 'blue', 'purple', 'black']);
 const detailRenderKeys = new WeakMap();

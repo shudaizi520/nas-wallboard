@@ -1,21 +1,11 @@
 package dashboard
 
-import (
-	"strconv"
-	"strings"
-)
-
-// This is a display-noise threshold, not a meteorological risk threshold.
-// Keep wet-weather probabilities, original source data and detailed text.
-func quietForecastProbability(label, icon string) string {
-	if icon == "weather-rain" || icon == "weather-storm" || icon == "weather-snow" || label == "" {
-		return label
-	}
-	if label == "<1%" {
+// Filter the raw probability before formatting, uniformly for every phenomenon.
+// This is only display-noise filtering: never rewrite the source, weather class,
+// precipitation amount, reminders or official warnings based on this threshold.
+func forecastProbabilityBadge(probability float64, missing bool) string {
+	if missing || invalidNumber(probability) || probability <= .20 || probability > 1 {
 		return ""
 	}
-	if probability, err := strconv.ParseFloat(strings.TrimSuffix(label, "%"), 64); err == nil && probability >= 0 && probability < 20 {
-		return ""
-	}
-	return label
+	return forecastProbability(probability, false)
 }
