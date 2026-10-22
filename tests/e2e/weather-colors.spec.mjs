@@ -5,6 +5,54 @@ import {join} from 'node:path';
 const root = new URL('../..', import.meta.url).pathname;
 const fixture = JSON.parse(await readFile(join(root, 'tests/e2e/fixture.json'), 'utf8'));
 
+// Removing the hourly temperature's own color must fail this test: a parent
+// warning must not recolor ordinary temperatures or obscure warning severity.
+for (const width of [300, 360]) test(`hourly temperatures stay neutral through warning changes at ${width}px`, async ({page}) => {
+  await page.setViewportSize({width: 620, height: 1000});
+  await page.route('http://wallboard.test/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/dashboard') return route.fulfill({json: {...fixture, width}});
+    if (path === '/api/setup/status') return route.fulfill({json: {setup_required: false}});
+    const file = path === '/' ? 'index.html' : path.slice(1);
+    return route.fulfill({body: await readFile(join(root, 'web', file)), contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html'});
+  });
+  await page.goto('http://wallboard.test/?desktop=1');
+  await expect(page.locator('.glass-panel')).toHaveAttribute('data-ready', 'true');
+  const forecast_hours = [29, 30, 30, 29, 28, 27].map((temperature, i) => ({
+    at: `2026-10-22T${12 + i * 2}:00:00+08:00`, label: `${12 + i * 2}时`,
+    icon: i < 3 ? 'weather-sunny' : 'weather-moon', condition: '晴', temperature: `${temperature}°`, rain: i === 0 ? '65%' : '',
+  }));
+  const weather = {...fixture.activities.find(a => a.id === 'weather'), value: '26° · 晴', value_tone: 'neutral', forecast_hours};
+  const row = page.locator('[data-key="weather"]');
+  let originalHeight;
+  for (const [color, tone, warningColor] of [
+    ['orange', 'bad', 'rgb(255, 173, 85)'], ['red', 'bad', 'rgb(255, 125, 135)'],
+    ['yellow', 'warn', 'rgb(245, 211, 93)'], ['blue', 'warn', 'rgb(131, 187, 255)'],
+    ['purple', 'bad', 'rgb(198, 165, 231)'], ['black', 'bad', 'rgb(198, 165, 231)'],
+    ['', 'active', null],
+  ]) {
+    const detail = color ? '森林火险预警' : '';
+    const activity = {...weather, tone, detail, detail_parts: color ? [{text: detail, color}] : undefined};
+    await page.evaluate(async raw => {
+      const {renderDashboard} = await import('/view.js'); renderDashboard(document, raw);
+    }, {...fixture, width, activities: [activity]});
+    await expect(row).toHaveAttribute('data-tone', tone);
+    await expect(row.locator('.weather-hour [data-field="temperature"]')).toHaveText(['29°', '30°', '30°', '29°', '28°', '27°']);
+    for (const temperature of await row.locator('.weather-hour [data-field="temperature"]').all()) {
+      await expect(temperature).toHaveCSS('color', 'rgba(247, 250, 255, 0.96)');
+      await expect(temperature).toHaveCSS('font-size', '13.6px');
+    }
+    await expect(row.locator('.activity-line [data-field="value"]')).toHaveCSS('color', 'rgba(235, 243, 255, 0.82)');
+    await expect(row.locator('.weather-hour [data-field="rain"]').first()).toHaveCSS('color', 'rgb(105, 217, 237)');
+    if (color) await expect(row.locator(`[data-warning-color="${color}"]`)).toHaveCSS('color', warningColor);
+    else await expect(row.locator('[data-warning-color]')).toHaveCount(0);
+    const layout = await row.locator('.weather-hourly').evaluate(n => ({height: n.getBoundingClientRect().height, overflow: n.scrollWidth > n.clientWidth + 1}));
+    originalHeight ??= layout.height;
+    expect(layout.height).toBe(originalHeight);
+    expect(layout.overflow).toBe(false);
+  }
+});
+
 test('weather keeps current text neutral and independently colors warning details', async ({page}) => {
   await page.setViewportSize({width: 600, height: 700});
   await page.route('http://wallboard.test/**', async (route) => {
